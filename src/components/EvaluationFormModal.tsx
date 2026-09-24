@@ -40,21 +40,29 @@ interface EvaluationFormModalProps {
   onSaved: (evaluation: Evaluation) => void;
 }
 
-export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
+interface EvaluationFormModalContentProps extends EvaluationFormModalProps {
+  targetEmployee: Employee;
+}
+
+export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = (props) => {
+  const { employees } = useData();
+  const targetEmployee =
+    props.employee ||
+    (props.evaluation ? employees.find((employee) => employee.id === props.evaluation?.employeeId) : null);
+
+  if (!targetEmployee) return null;
+
+  return <EvaluationFormModalContent {...props} targetEmployee={targetEmployee} />;
+};
+
+const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   evaluation,
-  employee: propEmployee,
+  targetEmployee,
   onClose,
   onSaved,
 }) => {
   const { currentUser, canViewKPIWeights, canApproveEvaluations, canPublishEvaluations } = useAuth();
-  const { settings, employees, saveEvaluation, acknowledgeEvaluation, selectedQuarter, selectedYear } = useData();
-
-  // Determine target employee
-  const targetEmployee =
-    propEmployee ||
-    (evaluation ? employees.find((e) => e.id === evaluation.employeeId) : null);
-
-  if (!targetEmployee) return null;
+  const { settings, saveEvaluation, acknowledgeEvaluation, selectedQuarter, selectedYear } = useData();
 
   // Eligibility calculation (minimum 2 months)
   const eligibility = CalculationEngine.checkEligibility(
@@ -93,6 +101,7 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
   const [activeGuideKpiId, setActiveGuideKpiId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<EvaluationAIRecommendations | undefined>(
     evaluation?.aiRecommendations
@@ -115,6 +124,17 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
 
   // Live score calculation
   const calculated = React.useMemo(() => {
+    if (evaluation && evaluation.scores.length === 0) {
+      return {
+        commonScore: evaluation.commonScore,
+        departmentScore: evaluation.departmentScore,
+        leadershipScore: evaluation.leadershipScore || 0,
+        finalScore: evaluation.finalScore,
+        classification: evaluation.classification,
+        itemScores: [],
+      };
+    }
+
     const inputList = Object.entries(scoresState).map(([kpiId, val]) => ({
       kpiId,
       score: (val as { score: number; notes: string }).score,
@@ -128,7 +148,7 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
       targetEmployee.isHeadTechnical || false,
       settings.classifications
     );
-  }, [scoresState, activeKpis, targetEmployee, settings.classifications]);
+  }, [scoresState, activeKpis, targetEmployee, settings.classifications, evaluation]);
 
   const handleScoreChange = (kpiId: string, newScore: number) => {
     if (isLocked) return;
@@ -154,6 +174,7 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
     }
     return {
       id: evaluation?.id || `eval-${targetEmployee.id}-${effectiveQuarter}-${selectedYear}`,
+      databaseId: evaluation?.databaseId,
       employeeId: targetEmployee.id,
       employeeName: targetEmployee.name,
       evaluatorId: currentUser?.id || 'emp-admin',
@@ -207,11 +228,19 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
 
   const handleAction = async (newStatus: EvaluationStatus) => {
     if (isSaving) return;
+    setSaveError(null);
     setIsSaving(true);
     try {
       const payload = buildEvaluationPayload(newStatus);
-      await saveEvaluation(payload);
-      onSaved(payload);
+      const saved = await saveEvaluation(payload);
+      onSaved(saved);
+    } catch (error) {
+      console.error('Evaluation persistence failed:', error);
+      setSaveError(
+        error instanceof Error
+          ? `The evaluation was not saved: ${error.message}`
+          : 'The evaluation was not saved. Please check your connection and try again.'
+      );
     } finally {
       setIsSaving(false);
     }
@@ -219,16 +248,21 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = ({
 
   const handleAcknowledge = async () => {
     if (!evaluation || isSaving) return;
+    setSaveError(null);
     setIsSaving(true);
     try {
-      await acknowledgeEvaluation(evaluation.id, ackNotes);
-      onSaved({
-        ...evaluation,
-        status: 'ACKNOWLEDGED',
-        acknowledgedAt: new Date().toISOString(),
-        acknowledgedBy: currentUser?.name,
-        acknowledgementNotes: ackNotes,
-      });
+      const saved = await acknowledgeEvaluation(evaluation.id, ackNotes);
+      if (!saved) {
+        throw new Error('The evaluation could not be found in Supabase.');
+      }
+      onSaved(saved);
+    } catch (error) {
+      console.error('Evaluation acknowledgement failed:', error);
+      setSaveError(
+        error instanceof Error
+          ? `The acknowledgement was not saved: ${error.message}`
+          : 'The acknowledgement was not saved. Please check your connection and try again.'
+      );
     } finally {
       setIsSaving(false);
     }
@@ -663,6 +697,11 @@ Return valid JSON only, using this structure:
 
         {/* Modal Footer Controls */}
         <div className="flex flex-wrap items-center justify-between border-t border-white/10 px-6 py-4" style={{ background: 'rgba(10, 13, 17, 0.95)' }}>
+          {saveError && (
+            <div className="mb-3 w-full rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs font-medium text-rose-300" role="alert">
+              {saveError}
+            </div>
+          )}
           <div className="text-xs text-slate-400">
             {isLocked
               ? 'This evaluation is locked and archived.'

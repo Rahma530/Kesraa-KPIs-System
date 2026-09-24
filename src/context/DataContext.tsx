@@ -22,13 +22,13 @@ export interface DataContextType {
   selectedYear: number;
   setSelectedQuarter: (q: EvaluationQuarter | '') => void;
   setSelectedYear: (y: number) => void;
-  saveEvaluation: (evaluation: Evaluation) => Evaluation;
-  acknowledgeEvaluation: (evaluationId: string, notes?: string) => void;
+  saveEvaluation: (evaluation: Evaluation) => Promise<Evaluation>;
+  acknowledgeEvaluation: (evaluationId: string, notes?: string) => Promise<Evaluation | null>;
   saveSettings: (settings: SystemSettings) => void;
   saveEmployee: (emp: Employee) => void;
   deleteEmployee: (id: string) => void;
   saveDepartments: (depts: Department[]) => void;
-  refreshData: () => void;
+  refreshData: () => Promise<void>;
   exportBackup: () => string;
   restoreBackup: (jsonStr: string) => { success: boolean; message: string };
   importEmployeesCSV: (csv: string) => { importedCount: number; errors: string[] };
@@ -48,28 +48,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedQuarter, setSelectedQuarter] = useState<EvaluationQuarter | ''>('');
   const [selectedYear, setSelectedYear] = useState<number>(settings.activeYear || 2026);
 
-  const refreshData = () => {
+  const refreshLocalData = () => {
     setDepartments(StorageService.getDepartments());
     setEmployees(StorageService.getEmployees());
     const s = StorageService.getSettings();
     setSettings(s);
-    setEvaluations(StorageService.getEvaluations());
     setAuditLogs(AuditService.getLogs());
+  };
+
+  const refreshData = async () => {
+    refreshLocalData();
+    const remoteEvaluations = await StorageService.getEvaluationsFromSupabase();
+    setEvaluations(remoteEvaluations);
   };
 
   useEffect(() => {
     StorageService.initialize();
-    refreshData();
+    refreshData().catch((error) => {
+      console.error('Failed to load evaluations from Supabase:', error);
+      setEvaluations([]);
+    });
   }, []);
 
-  const saveEvaluation = (evaluation: Evaluation): Evaluation => {
+  const saveEvaluation = async (evaluation: Evaluation): Promise<Evaluation> => {
     const actorId = currentUser?.id || 'system';
     const actorName = currentUser?.name || 'System User';
     const actorRole = currentUser?.systemRole || 'ADMIN';
     const actorEmail = currentUser?.email || '';
 
     // Pass email so Supabase gets correct evaluator_email
-    const saved = StorageService.saveEvaluation(evaluation, actorId, actorName, actorRole, actorEmail);
+    const saved = await StorageService.saveEvaluation(evaluation, actorId, actorName, actorRole, actorEmail);
     
     // Log activity to audit_logs table
     logActivity({
@@ -79,13 +87,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: `Evaluated employee ${evaluation.employeeId} in ${evaluation.quarter} ${evaluation.year}`
     });
 
-    refreshData();
+    await refreshData();
     return saved;
   };
 
-  const acknowledgeEvaluation = (evaluationId: string, notes?: string) => {
-    if (!currentUser) return;
-    StorageService.acknowledgeEvaluation(evaluationId, currentUser.id, currentUser.name, notes);
+  const acknowledgeEvaluation = async (evaluationId: string, notes?: string): Promise<Evaluation | null> => {
+    if (!currentUser) return null;
+    const saved = await StorageService.acknowledgeEvaluation(
+      evaluationId,
+      currentUser.id,
+      currentUser.name,
+      currentUser.systemRole,
+      currentUser.email,
+      notes
+    );
     
     logActivity({
       userRole: currentUser.systemRole,
@@ -94,7 +109,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: `Acknowledged evaluation ${evaluationId}`
     });
 
-    refreshData();
+    await refreshData();
+    return saved;
   };
 
   const saveSettings = (newSettings: SystemSettings) => {
@@ -111,7 +127,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: `Updated system settings`
     });
 
-    refreshData();
+    refreshLocalData();
   };
 
   const saveEmployee = (emp: Employee) => {
@@ -129,7 +145,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: `Saved/Updated employee: ${emp.name} (${emp.email})`
     });
 
-    refreshData();
+    refreshLocalData();
   };
 
   const deleteEmployee = (id: string) => {
@@ -149,12 +165,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: `Deleted employee: ${empName}`
     });
 
-    refreshData();
+    refreshLocalData();
   };
 
   const saveDepartments = (depts: Department[]) => {
     StorageService.saveDepartments(depts);
-    refreshData();
+    refreshLocalData();
   };
 
   const exportBackup = () => {
@@ -167,7 +183,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const actorRole = currentUser?.systemRole || 'ADMIN';
 
     const res = StorageService.restoreBackup(jsonStr, actorId, actorName, actorRole);
-    refreshData();
+    refreshLocalData();
     return res;
   };
 
@@ -177,7 +193,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const actorRole = currentUser?.systemRole || 'ADMIN';
 
     const res = StorageService.importEmployeesFromCSV(csv, actorId, actorName, actorRole);
-    refreshData();
+    refreshLocalData();
     return res;
   };
 

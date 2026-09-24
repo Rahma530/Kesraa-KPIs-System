@@ -3,12 +3,12 @@ import { Users, Award, Clock, ChevronLeft, Plus, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { ARABIC_LEVELS, ARABIC_STATUSES } from '../locales/ar';
-import { Employee, EmployeeLevel } from '../types';
+import { Employee, EmployeeLevel, Evaluation } from '../types';
 import { getRoleOptions, getStandardRole } from '../utils/departmentNames';
 
 interface TeamLeaderDashboardProps {
   onStartEvaluation: (employeeId: string) => void;
-  onViewEvaluation: (evaluationId: string) => void;
+  onViewEvaluation: (evaluation: Evaluation) => void;
 }
 
 export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
@@ -180,7 +180,7 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
                     )}
                     
                     <button
-                      onClick={() => currentEval ? onViewEvaluation(currentEval.id) : onStartEvaluation(emp.id)}
+                      onClick={() => currentEval ? onViewEvaluation(currentEval) : onStartEvaluation(emp.id)}
                       className="shrink-0 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-white transition-colors flex items-center gap-1"
                     >
                       {currentEval ? 'View Evaluation' : 'Evaluate Now'}

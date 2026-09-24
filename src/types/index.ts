@@ -119,6 +119,10 @@ export interface PerformanceClassificationConfig {
 
 export interface Evaluation {
   id: string;
+  /** Primary-key value of the persisted Supabase evaluations row. */
+  databaseId?: string | number;
+  /** Original non-standard details payload retained when importing a legacy row. */
+  legacyDetails?: unknown;
   employeeId: string;
   employeeName: string;
   evaluatorId: string;
