@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Authenticated user profile with role and employee reference",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "name": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["ADMIN", "HR", "CEO", "TEAM_LEADER", "EMPLOYEE"] },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "departmentId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee organizational and HR record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "departmentName": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "maxLength": 128 },
+        "level": { "type": "string", "enum": ["Junior", "Mid", "Senior", "Team Leader"] },
+        "teamLeaderId": { "type": "string", "maxLength": 128 },
+        "startDate": { "type": "string", "maxLength": 32 },
+        "isActive": { "type": "boolean" },
+        "isHeadTechnical": { "type": "boolean" },
+        "phone": { "type": "string", "maxLength": 64 },
+        "salary": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "departmentId", "departmentName", "role", "level", "startDate", "isActive"]
+    },
+    "Evaluation": {
+      "title": "Evaluation",
+      "description": "Quarterly performance evaluation instance with snapshot configuration version",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "evaluatorId": { "type": "string", "maxLength": 128 },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "quarter": { "type": "string", "maxLength": 16 },
+        "year": { "type": "number" },
+        "cycleId": { "type": "string", "maxLength": 64 },
+        "version": { "type": "string", "maxLength": 32 },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NOT_STARTED",
+            "DRAFT",
+            "SUBMITTED_BY_TEAM_LEADER",
+            "UNDER_REVIEW",
+            "REVIEWED",
+            "HR_MANAGEMENT_APPROVED",
+            "PUBLISHED",
+            "EMPLOYEE_VIEWED",
+            "ACKNOWLEDGED"
+          ]
+        },
+        "isEligible": { "type": "boolean" },
+        "tenureMonths": { "type": "number" },
+        "commonScore": { "type": "number" },
+        "departmentScore": { "type": "number" },
+        "leadershipScore": { "type": "number" },
+        "finalScore": { "type": "number" },
+        "classification": { "type": "string", "maxLength": 64 },
+        "departmentRank": { "type": "number" },
+        "totalInDepartment": { "type": "number" },
+        "strengths": { "type": "string", "maxLength": 4000 },
+        "improvements": { "type": "string", "maxLength": 4000 },
+        "developmentActions": { "type": "string", "maxLength": 4000 },
+        "acknowledgedAt": { "type": "string" },
+        "acknowledgedBy": { "type": "string" },
+        "approvedBy": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "locked": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "departmentId", "quarter", "year", "cycleId", "status", "version"]
+    },
+    "EvaluationScore": {
+      "title": "EvaluationScore",
+      "description": "Itemized score for a specific KPI in an evaluation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "evaluationId": { "type": "string", "maxLength": 128 },
+        "kpiId": { "type": "string", "maxLength": 128 },
+        "kpiName": { "type": "string", "maxLength": 256 },
+        "category": { "type": "string", "enum": ["COMMON", "DEPARTMENT", "LEADERSHIP", "MANAGEMENT"] },
+        "score": { "type": "number" },
+        "weight": { "type": "number" },
+        "weightedContribution": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 2000 }
+      },
+      "required": ["id", "evaluationId", "kpiId", "kpiName", "category", "score", "weight", "weightedContribution"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "System-wide configurable business rules and KPI rubrics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "minTenureMonths": { "type": "number" },
+        "activeCycle": { "type": "string", "maxLength": 32 },
+        "activeVersion": { "type": "string", "maxLength": 32 },
+        "scoreMin": { "type": "number" },
+        "scoreMax": { "type": "number" },
+        "commonSkillsPercent": { "type": "number" },
+        "deptKpiPercent": { "type": "number" },
+        "tlLeadershipPercent": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "minTenureMonths", "activeCycle", "activeVersion"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System audit trail for compliance and tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 128 },
+        "userRole": { "type": "string", "maxLength": 64 },
+        "action": { "type": "string", "maxLength": 128 },
+        "targetType": { "type": "string", "maxLength": 64 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 4000 },
+        "previousValue": { "type": "string", "maxLength": 4000 },
+        "newValue": { "type": "string", "maxLength": 4000 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "action", "targetType", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User accounts and RBAC roles"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Employee directory and organizational metadata"
+    },
+    "/evaluations/{evaluationId}": {
+      "schema": "Evaluation",
+      "description": "Quarterly performance evaluation records"
+    },
+    "/evaluations/{evaluationId}/scores/{scoreId}": {
+      "schema": "EvaluationScore",
+      "description": "Detailed KPI score records"
+    },
+    "/settings/{settingId}": {
+      "schema": "SystemSetting",
+      "description": "Application configuration settings"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System compliance audit logs"
+    }
+  }
+}

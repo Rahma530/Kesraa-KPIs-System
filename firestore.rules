@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isRole(role) {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == role;
+    }
+
+    function isAdminOrManagement() {
+      return isRole('ADMIN') || isRole('HR') || isRole('CEO');
+    }
+
+    function isTeamLeader() {
+      return isRole('TEAM_LEADER');
+    }
+
+    function isEmployee() {
+      return isRole('EMPLOYEE');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdminOrManagement());
+      allow create, update, delete: if isAdminOrManagement();
+    }
+
+    // Employees collection
+    match /employees/{employeeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrManagement();
+    }
+
+    // Evaluations collection
+    match /evaluations/{evaluationId} {
+      // Admin/HR/CEO can read all evaluations
+      // Team leaders can only read evaluations for employees in their department
+      // Employees can only read their own evaluation
+      allow read: if isSignedIn() && (
+        isAdminOrManagement() ||
+        (isTeamLeader() && resource.data.departmentId == getUserData().departmentId) ||
+        (isEmployee() && resource.data.employeeId == getUserData().employeeId)
+      );
+
+      // Create / Write evaluations
+      allow create: if isSignedIn() && (
+        isAdminOrManagement() ||
+        (isTeamLeader() && request.resource.data.departmentId == getUserData().departmentId)
+      );
+
+      // Updates
+      allow update: if isSignedIn() && (
+        isAdminOrManagement() ||
+        (
+          isTeamLeader() && 
+          resource.data.departmentId == getUserData().departmentId &&
+          resource.data.locked != true
+        ) ||
+        (
+          isEmployee() &&
+          resource.data.employeeId == getUserData().employeeId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledgedAt', 'acknowledgedBy', 'status', 'updatedAt'])
+        )
+      );
+
+      allow delete: if isAdminOrManagement();
+
+      // Subcollection scores
+      match /scores/{scoreId} {
+        allow read: if isSignedIn() && (
+          isAdminOrManagement() ||
+          (isTeamLeader() && get(/databases/$(database)/documents/evaluations/$(evaluationId)).data.departmentId == getUserData().departmentId) ||
+          (isEmployee() && get(/databases/$(database)/documents/evaluations/$(evaluationId)).data.employeeId == getUserData().employeeId)
+        );
+
+        allow write: if isSignedIn() && (
+          isAdminOrManagement() ||
+          (isTeamLeader() && get(/databases/$(database)/documents/evaluations/$(evaluationId)).data.departmentId == getUserData().departmentId)
+        );
+      }
+    }
+
+    // System Settings - only Admin can write, anyone signed in can read configuration
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isRole('ADMIN') || isRole('CEO');
+    }
+
+    // Audit Logs - Read by Admin/HR/CEO, Append-only
+    match /auditLogs/{logId} {
+      allow read: if isAdminOrManagement();
+      allow create: if isSignedIn();
+      allow update, delete: if false; // Immutable audit trail
+    }
+  }
+}

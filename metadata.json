@@ -1,0 +1,8 @@
+{
+  "name": "نظام تقييم الأداء المؤسسي",
+  "description": "نظام متكامل لإدارة وتقييم أداء الموظفين وفق مؤشرات الأداء الرئيسية (KPIs)، سير عمل الموافقات متعدد المستويات، التحليلات الذكية بالذكاء الاصطناعي، وتوثيق سجلات التدقيق.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
