@@ -20,7 +20,7 @@ import { AuthorizationCapability } from './auth/authorization';
 
 // Layout component containing Navbar, Footer, and Modals
 const AppLayout: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, canEvaluateEmployee, canViewEvaluation } = useAuth();
   const location = useLocation();
   
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
@@ -32,24 +32,92 @@ const AppLayout: React.FC = () => {
 
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
 
-  const { employees, selectedQuarter } = useData();
+  const {
+    employees,
+    selectedQuarter,
+    selectedYear,
+    setSelectedQuarter,
+    setSelectedYear,
+    refreshData,
+  } = useData();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  const handleOpenEvaluationModal = (evalItem?: Evaluation, employeeId?: string, requestedQuarter?: EvaluationQuarter) => {
+  const handleOpenEvaluationModal = async (
+    evalItem?: Evaluation,
+    employeeId?: string,
+    requestedQuarter?: EvaluationQuarter,
+    requestedYear?: number
+  ) => {
     if (evalItem) {
-      setSelectedEvaluation(evalItem);
+      try {
+        const sharedEvaluations = await refreshData();
+        const persistedEvaluation = sharedEvaluations.find((candidate) =>
+          evalItem.databaseId !== undefined
+            ? String(candidate.databaseId) === String(evalItem.databaseId)
+            : candidate.id === evalItem.id
+        ) || sharedEvaluations.find((candidate) =>
+          candidate.employeeId === evalItem.employeeId &&
+          candidate.quarter === evalItem.quarter &&
+          candidate.year === evalItem.year
+        );
+
+        if (!persistedEvaluation) {
+          window.alert('This evaluation could not be found in Supabase. Please refresh and try again.');
+          return;
+        }
+        if (!canViewEvaluation(persistedEvaluation)) {
+          window.alert('You are not authorized to view this evaluation.');
+          return;
+        }
+
+        setSelectedEvaluation(persistedEvaluation);
+      } catch (error) {
+        console.error('Could not open evaluation from Supabase:', error);
+        window.alert(error instanceof Error ? error.message : 'Could not load this evaluation from Supabase.');
+        return;
+      }
       setSelectedEmployeeForEval(null);
     } else if (employeeId) {
       if (!(requestedQuarter || selectedQuarter)) {
         window.alert('Please select an evaluation quarter first.');
         return;
       }
+      if (requestedQuarter) setSelectedQuarter(requestedQuarter);
+      if (requestedYear && requestedYear !== selectedYear) setSelectedYear(requestedYear);
       const emp = employees.find((e) => e.id === employeeId) || null;
-      setSelectedEmployeeForEval(emp);
-      setSelectedEvaluation(null);
+      if (!emp || !canEvaluateEmployee(emp)) {
+        window.alert('You are not authorized to evaluate this employee.');
+        return;
+      }
+      try {
+        const sharedEvaluations = await refreshData();
+        const effectiveQuarter = requestedQuarter || selectedQuarter;
+        const effectiveYear = requestedYear || selectedYear;
+        const existingEvaluation = sharedEvaluations.find((candidate) =>
+          candidate.employeeId === employeeId &&
+          candidate.quarter === effectiveQuarter &&
+          candidate.year === effectiveYear
+        );
+
+        if (existingEvaluation) {
+          if (!canViewEvaluation(existingEvaluation)) {
+            window.alert('You are not authorized to view this evaluation.');
+            return;
+          }
+          setSelectedEvaluation(existingEvaluation);
+          setSelectedEmployeeForEval(null);
+        } else {
+          setSelectedEmployeeForEval(emp);
+          setSelectedEvaluation(null);
+        }
+      } catch (error) {
+        console.error('Could not check Supabase for an existing evaluation:', error);
+        window.alert(error instanceof Error ? error.message : 'Could not check Supabase for an existing evaluation.');
+        return;
+      }
     } else {
       return;
     }
@@ -136,7 +204,7 @@ const RouteWrapper: React.FC<{ component: React.FC<any> }> = ({ component: Compo
   const context: any = useOutletContext();
   return <Component 
     onSelectEvaluation={(e: any) => context.handleOpenEvaluationModal(e)}
-    onNewEvaluation={(id: string, quarter: EvaluationQuarter) => context.handleOpenEvaluationModal(undefined, id, quarter)}
+    onNewEvaluation={(id: string, quarter: EvaluationQuarter, year: number) => context.handleOpenEvaluationModal(undefined, id, quarter, year)}
     onOpenAIInsights={context.handleOpenAIInsights}
     onAnalyzeWithAI={(e: any) => context.handleOpenAIWithEvaluation(e)}
     onOpenGoogleSheets={context.handleOpenSheetsModal}

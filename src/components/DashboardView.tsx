@@ -76,10 +76,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const totalEmployees = employees.filter((e) => e.isActive).length;
   const eligibleEmployees = employees.filter((e) => e.isActive && e.startDate <= '2026-06-01').length;
   const completedEvals = displayedEvals.filter((e) =>
-    ['PUBLISHED', 'EMPLOYEE_VIEWED', 'ACKNOWLEDGED'].includes(e.status)
+    e.status === 'APPROVED'
   );
   const pendingApprovals = displayedEvals.filter((e) =>
-    ['SUBMITTED_BY_TEAM_LEADER', 'UNDER_REVIEW', 'REVIEWED'].includes(e.status)
+    e.status === 'UNDER_REVIEW'
   );
 
   const averageScore =
@@ -100,7 +100,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const deptEvals = currentCycleEvals.filter(
       (e) =>
         e.departmentId === dept.id &&
-        ['PUBLISHED', 'EMPLOYEE_VIEWED', 'ACKNOWLEDGED', 'HR_MANAGEMENT_APPROVED'].includes(e.status)
+        e.status === 'APPROVED'
     );
     const avg =
       deptEvals.length > 0
@@ -516,12 +516,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <td className="py-3.5">
                           <span
                             className={`text-xs flex items-center gap-1.5 font-medium ${
-                              evaluation.status === 'PUBLISHED' || evaluation.status === 'ACKNOWLEDGED'
+                              evaluation.status === 'APPROVED'
                                 ? 'text-emerald-400'
-                                : evaluation.status === 'HR_MANAGEMENT_APPROVED'
-                                ? 'text-purple-400'
-                                : evaluation.status === 'SUBMITTED_BY_TEAM_LEADER'
-                                ? 'text-amber-400'
                                 : 'text-teal-400'
                             }`}
                           >

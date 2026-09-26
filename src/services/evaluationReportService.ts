@@ -1,15 +1,9 @@
 import { Evaluation, EvaluationStatus, KPICategory } from '../types';
 
 const STATUS_LABELS: Record<EvaluationStatus, string> = {
-  NOT_STARTED: 'Not Started',
   DRAFT: 'Draft',
-  SUBMITTED_BY_TEAM_LEADER: 'Submitted by Team Leader',
   UNDER_REVIEW: 'Head Of Technical Review',
-  REVIEWED: 'Reviewed',
-  HR_MANAGEMENT_APPROVED: 'Management Approved',
-  PUBLISHED: 'Published to Employee',
-  EMPLOYEE_VIEWED: 'Viewed by Employee',
-  ACKNOWLEDGED: 'Acknowledged',
+  APPROVED: 'Approved',
 };
 
 const CATEGORY_LABELS: Record<KPICategory, string> = {

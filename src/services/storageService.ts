@@ -35,18 +35,39 @@ const STORAGE_KEYS = {
 interface SupabaseEvaluationRow {
   id: string | number;
   created_at?: string | null;
+  updated_at?: string | null;
   employee_id?: string | null;
   employee_name?: string | null;
   evaluator_role?: string | null;
   evaluator_email?: string | null;
   department?: string | null;
-  status?: EvaluationStatus | null;
+  status?: string | null;
+  workflow_status?: string | null;
+  quarter?: string | null;
+  evaluation_year?: number | null;
   classification?: string | null;
   performance_score?: number | null;
   communication_score?: number | null;
   notes?: string | null;
   details?: string | Partial<Evaluation> | null;
 }
+
+const normalizePersistedEvaluationStatus = (status: unknown): EvaluationStatus => {
+  if (status === 'UNDER_REVIEW' || status === 'SUBMITTED_BY_TEAM_LEADER') {
+    return 'UNDER_REVIEW';
+  }
+  if (
+    status === 'APPROVED' ||
+    status === 'REVIEWED' ||
+    status === 'HR_MANAGEMENT_APPROVED' ||
+    status === 'PUBLISHED' ||
+    status === 'EMPLOYEE_VIEWED' ||
+    status === 'ACKNOWLEDGED'
+  ) {
+    return 'APPROVED';
+  }
+  return 'DRAFT';
+};
 
 const removeLegacyEmployeePasswords = (employees: Employee[]): Employee[] => employees.map((employee) => {
   const { password: _discardedPassword, ...safeEmployee } = employee as Employee & { password?: unknown };
@@ -215,12 +236,17 @@ export class StorageService {
       const detailsContainer = rawDetails && typeof rawDetails === 'object' && !Array.isArray(rawDetails)
         ? rawDetails as Record<string, unknown>
         : null;
-      const candidateDetails = [
-        detailsContainer,
+      const detailsCandidates = [
         detailsContainer?.evaluation,
         detailsContainer?.data,
         detailsContainer?.payload,
-      ].find((candidate) => (
+        detailsContainer,
+      ].filter((candidate) => (
+        candidate !== null &&
+        typeof candidate === 'object' &&
+        !Array.isArray(candidate)
+      )) as Partial<Evaluation>[];
+      const candidateDetails = detailsCandidates.find((candidate) => (
         candidate !== null &&
         typeof candidate === 'object' &&
         !Array.isArray(candidate) &&
@@ -228,8 +254,18 @@ export class StorageService {
       )) as Partial<Evaluation> | undefined;
 
       if (!candidateDetails) {
-        return this.mapLegacySupabaseRow(row, rawDetails);
+        return this.mapLegacySupabaseRow(row, rawDetails, detailsCandidates[0]);
       }
+
+      const createdDate = row.created_at ? new Date(row.created_at) : new Date(0);
+      const hasValidCreatedDate = !Number.isNaN(createdDate.getTime());
+      const fallbackQuarter = `Q${hasValidCreatedDate ? Math.floor(createdDate.getUTCMonth() / 3) + 1 : 1}` as Evaluation['quarter'];
+      const persistedQuarter = /^Q[1-4]$/.test(row.quarter || '')
+        ? row.quarter as Evaluation['quarter']
+        : candidateDetails.quarter || fallbackQuarter;
+      const persistedYear = Number.isInteger(row.evaluation_year)
+        ? row.evaluation_year as number
+        : candidateDetails.year || (hasValidCreatedDate ? createdDate.getUTCFullYear() : 1970);
 
       return normalizeEvaluationRole(normalizeEvaluationDepartment({
         ...(candidateDetails as Evaluation),
@@ -238,11 +274,16 @@ export class StorageService {
         employeeName: row.employee_name || candidateDetails.employeeName,
         evaluatorRole: row.evaluator_role || candidateDetails.evaluatorRole,
         departmentName: row.department || candidateDetails.departmentName,
-        status: row.status || candidateDetails.status,
+        quarter: persistedQuarter,
+        year: persistedYear,
+        status: normalizePersistedEvaluationStatus(
+          row.workflow_status || row.status || candidateDetails.status
+        ),
         classification: row.classification || candidateDetails.classification,
         finalScore: row.performance_score ?? candidateDetails.finalScore,
         commonScore: row.communication_score ?? candidateDetails.commonScore,
         strengths: row.notes ?? candidateDetails.strengths,
+        updatedAt: row.updated_at || candidateDetails.updatedAt,
       } as Evaluation));
     } catch (error) {
       console.warn(`Could not parse details for Supabase evaluation row ${row.id}; using core columns instead.`, error);
@@ -250,7 +291,11 @@ export class StorageService {
     }
   }
 
-  private static mapLegacySupabaseRow(row: SupabaseEvaluationRow, rawDetails: unknown): Evaluation | null {
+  private static mapLegacySupabaseRow(
+    row: SupabaseEvaluationRow,
+    rawDetails: unknown,
+    partialDetails?: Partial<Evaluation>
+  ): Evaluation | null {
     if (!row.employee_id && !row.employee_name) {
       console.warn(`Supabase evaluation row ${row.id} has neither an employee identifier nor a name.`);
       return null;
@@ -260,58 +305,67 @@ export class StorageService {
     const createdDate = row.created_at ? new Date(row.created_at) : new Date(0);
     const hasValidCreatedDate = !Number.isNaN(createdDate.getTime());
     const quarterNumber = hasValidCreatedDate ? Math.floor(createdDate.getUTCMonth() / 3) + 1 : 1;
-    const quarter = `Q${quarterNumber}` as Evaluation['quarter'];
-    const year = hasValidCreatedDate ? createdDate.getUTCFullYear() : 1970;
+    const fallbackQuarter = `Q${quarterNumber}` as Evaluation['quarter'];
+    const quarter = /^Q[1-4]$/.test(row.quarter || '')
+      ? row.quarter as Evaluation['quarter']
+      : partialDetails?.quarter || fallbackQuarter;
+    const year = Number.isInteger(row.evaluation_year)
+      ? row.evaluation_year as number
+      : partialDetails?.year || (hasValidCreatedDate ? createdDate.getUTCFullYear() : 1970);
     const createdAt = hasValidCreatedDate ? createdDate.toISOString() : new Date(0).toISOString();
     const settings = INITIAL_SYSTEM_SETTINGS;
-    const departmentId = row.department?.startsWith('dept-')
+    const departmentId = partialDetails?.departmentId || (row.department?.startsWith('dept-')
       ? row.department
-      : employee?.departmentId || row.department || 'legacy-department';
+      : employee?.departmentId || row.department || 'legacy-department');
     const department = this.getDepartments().find((item) => item.id === departmentId);
-    const commonScore = row.communication_score ?? 0;
-    const departmentScore = row.performance_score ?? 0;
-    const finalScore = Math.min(100, Math.max(0, commonScore + departmentScore));
-    const classification = row.classification || settings.classifications.find(
+    const commonScore = row.communication_score ?? partialDetails?.commonScore ?? 0;
+    const departmentScore = partialDetails?.departmentScore ?? 0;
+    const finalScore = row.performance_score ?? partialDetails?.finalScore ?? 0;
+    const classification = row.classification || partialDetails?.classification || settings.classifications.find(
       (item) => finalScore >= item.minScore && finalScore <= item.maxScore
     )?.label || 'Unclassified';
-    const status = row.status || 'DRAFT';
+    const status = normalizePersistedEvaluationStatus(
+      row.workflow_status || row.status || partialDetails?.status
+    );
     const eligibility = employee
       ? CalculationEngine.checkEligibility(employee.startDate, createdAt, settings.minEmploymentMonths)
       : { isEligible: true, tenureMonths: 0, reason: 'Historical Supabase evaluation' };
 
     return normalizeEvaluationRole(normalizeEvaluationDepartment({
-      id: `legacy-${row.id}`,
+      ...partialDetails,
+      id: typeof partialDetails?.id === 'string' ? partialDetails.id : `legacy-${row.id}`,
       databaseId: row.id,
       legacyDetails: rawDetails,
-      employeeId: row.employee_id || employee?.id || `legacy-employee-${row.id}`,
-      employeeName: row.employee_name || employee?.name || row.employee_id || 'Historical employee',
-      evaluatorId: row.evaluator_email || `legacy-evaluator-${row.id}`,
-      evaluatorName: row.evaluator_email || 'Historical evaluator',
-      evaluatorRole: row.evaluator_role || 'Evaluator',
+      employeeId: row.employee_id || partialDetails?.employeeId || employee?.id || `legacy-employee-${row.id}`,
+      employeeName: row.employee_name || partialDetails?.employeeName || employee?.name || row.employee_id || 'Historical employee',
+      evaluatorId: partialDetails?.evaluatorId || row.evaluator_email || `legacy-evaluator-${row.id}`,
+      evaluatorName: partialDetails?.evaluatorName || row.evaluator_email || 'Historical evaluator',
+      evaluatorRole: row.evaluator_role || partialDetails?.evaluatorRole || 'Evaluator',
       departmentId,
-      departmentName: department?.name || employee?.departmentName || row.department || 'Historical department',
-      role: employee?.role || 'Historical employee',
-      level: employee?.level || 'Junior',
+      departmentName: partialDetails?.departmentName || department?.name || employee?.departmentName || row.department || 'Historical department',
+      role: partialDetails?.role || employee?.role || 'Historical employee',
+      level: partialDetails?.level || employee?.level || 'Junior',
       quarter,
       year,
-      cycleId: `cycle-${quarter}-${year}`,
-      version: settings.activeVersion,
+      cycleId: partialDetails?.cycleId || `cycle-${quarter}-${year}`,
+      version: partialDetails?.version || settings.activeVersion,
       status,
-      isEligible: eligibility.isEligible,
-      eligibilityReason: eligibility.reason,
-      tenureMonths: eligibility.tenureMonths,
+      isEligible: partialDetails?.isEligible ?? eligibility.isEligible,
+      eligibilityReason: partialDetails?.eligibilityReason || eligibility.reason,
+      tenureMonths: partialDetails?.tenureMonths ?? eligibility.tenureMonths,
       commonScore,
       departmentScore,
-      leadershipScore: 0,
+      leadershipScore: partialDetails?.leadershipScore ?? 0,
       finalScore,
       classification,
-      departmentRank: 1,
-      totalInDepartment: 1,
-      strengths: row.notes || '',
-      improvements: '',
-      developmentActions: '',
-      locked: ['HR_MANAGEMENT_APPROVED', 'PUBLISHED', 'EMPLOYEE_VIEWED', 'ACKNOWLEDGED'].includes(status),
-      snapshotConfig: {
+      departmentRank: partialDetails?.departmentRank ?? 1,
+      totalInDepartment: partialDetails?.totalInDepartment ?? 1,
+      strengths: row.notes ?? partialDetails?.strengths ?? '',
+      improvements: partialDetails?.improvements || '',
+      developmentActions: partialDetails?.developmentActions || '',
+      aiRecommendations: partialDetails?.aiRecommendations,
+      locked: status === 'APPROVED',
+      snapshotConfig: partialDetails?.snapshotConfig || {
         version: settings.activeVersion,
         minEmploymentMonths: settings.minEmploymentMonths,
         commonSkillsPercent: settings.commonSkillsPercent,
@@ -321,9 +375,13 @@ export class StorageService {
         kpis: [],
         classifications: settings.classifications,
       },
-      scores: [],
-      createdAt,
-      updatedAt: createdAt,
+      scores: partialDetails?.scores || [],
+      submittedAt: partialDetails?.submittedAt,
+      submittedBy: partialDetails?.submittedBy,
+      approvedAt: partialDetails?.approvedAt,
+      approvedBy: partialDetails?.approvedBy,
+      createdAt: partialDetails?.createdAt || createdAt,
+      updatedAt: row.updated_at || partialDetails?.updatedAt || createdAt,
     }));
   }
 
@@ -335,6 +393,10 @@ export class StorageService {
       evaluator_email: actorEmail || evaluation.evaluatorName,
       department: evaluation.departmentName,
       status: evaluation.status,
+      workflow_status: evaluation.status,
+      quarter: evaluation.quarter,
+      evaluation_year: evaluation.year,
+      updated_at: evaluation.updatedAt,
       classification: evaluation.classification,
       performance_score: evaluation.finalScore,
       communication_score: evaluation.commonScore,
@@ -368,29 +430,24 @@ export class StorageService {
       throw new Error(`Could not load evaluations from Supabase: ${error.message}`);
     }
 
-    const evaluationsById = new Map<string, Evaluation>();
+    const evaluations: Evaluation[] = [];
     for (const row of (data || []) as SupabaseEvaluationRow[]) {
       const evaluation = this.mapSupabaseRowToEvaluation(row);
       if (!evaluation) continue;
-
-      const existing = evaluationsById.get(evaluation.id);
-      const existingTime = existing
-        ? new Date(existing.updatedAt || existing.createdAt).getTime()
-        : Number.NEGATIVE_INFINITY;
-      const candidateTime = new Date(evaluation.updatedAt || evaluation.createdAt).getTime();
-
-      if (!existing || candidateTime >= existingTime) {
-        evaluationsById.set(evaluation.id, evaluation);
-      }
+      evaluations.push(evaluation);
     }
 
-    const evaluations = Array.from(evaluationsById.values())
+    const normalizedEvaluations = evaluations
       .filter((evaluation) => evaluation.departmentId !== MANAGERIAL_DEPARTMENT_ID)
       .map(normalizeEvaluationDepartment)
-      .map(normalizeEvaluationRole);
+      .map(normalizeEvaluationRole)
+      .sort((left, right) => (
+        new Date(right.updatedAt || right.createdAt).getTime() -
+        new Date(left.updatedAt || left.createdAt).getTime()
+      ));
 
-    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(evaluations));
-    return evaluations;
+    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(normalizedEvaluations));
+    return normalizedEvaluations;
   }
 
   public static async saveEvaluation(
@@ -401,15 +458,46 @@ export class StorageService {
     actorEmail?: string
   ): Promise<Evaluation> {
     let evaluations = await this.getEvaluationsFromSupabase();
-    const index = evaluations.findIndex((e) => e.id === evaluation.id);
+    const databaseMatches = evaluation.databaseId === undefined
+      ? []
+      : evaluations
+          .map((item, itemIndex) => ({ item, itemIndex }))
+          .filter(({ item }) => String(item.databaseId) === String(evaluation.databaseId));
+    const frontendIdMatches = evaluations
+      .map((item, itemIndex) => ({ item, itemIndex }))
+      .filter(({ item }) => item.id === evaluation.id);
+    const businessIdentityMatches = evaluations
+      .map((item, itemIndex) => ({ item, itemIndex }))
+      .filter(({ item }) =>
+        item.employeeId === evaluation.employeeId &&
+        item.quarter === evaluation.quarter &&
+        item.year === evaluation.year
+      );
+
+    if (databaseMatches.length > 1 || (evaluation.databaseId === undefined && frontendIdMatches.length > 1)) {
+      throw new Error(
+        `Multiple persisted evaluations match the identifier ${evaluation.id}. ` +
+        'Open the intended evaluation from the shared history before saving.'
+      );
+    }
+
+    if (
+      evaluation.databaseId === undefined &&
+      frontendIdMatches.length === 0 &&
+      businessIdentityMatches.length > 0
+    ) {
+      throw new Error(
+        `A persisted evaluation already exists for ${evaluation.employeeName} in ${evaluation.quarter} ${evaluation.year}, ` +
+        'but its stable evaluation ID does not match. Open the existing evaluation from the shared history before saving.'
+      );
+    }
+
+    const index = evaluation.databaseId !== undefined
+      ? databaseMatches[0]?.itemIndex ?? -1
+      : frontendIdMatches[0]?.itemIndex ?? -1;
     let prev: Evaluation | undefined;
 
-    const shouldLock = [
-      'HR_MANAGEMENT_APPROVED',
-      'PUBLISHED',
-      'EMPLOYEE_VIEWED',
-      'ACKNOWLEDGED',
-    ].includes(evaluation.status);
+    const shouldLock = evaluation.status === 'APPROVED';
 
     const recordToSave: Evaluation = {
       ...evaluation,
@@ -433,7 +521,11 @@ export class StorageService {
       recordToSave.year
     );
 
-    const rankedRecord = evaluations.find((item) => item.id === recordToSave.id) || recordToSave;
+    const rankedRecord = recordToSave.databaseId !== undefined
+      ? evaluations.find(
+          (item) => String(item.databaseId) === String(recordToSave.databaseId)
+        ) || recordToSave
+      : evaluations.find((item) => item.id === recordToSave.id) || recordToSave;
     const payload = this.buildSupabasePayload(rankedRecord, actorEmail);
     let persistedRow: SupabaseEvaluationRow;
 
@@ -462,18 +554,15 @@ export class StorageService {
       persistedRow = data as SupabaseEvaluationRow;
     }
 
-    const saved = this.mapSupabaseRowToEvaluation(persistedRow);
-    if (!saved) {
+    const mappedSaved = this.mapSupabaseRowToEvaluation(persistedRow);
+    if (!mappedSaved) {
       throw new Error('Supabase saved the evaluation but returned an invalid evaluation record.');
     }
 
-    const savedIndex = evaluations.findIndex((item) => item.id === saved.id);
-    if (savedIndex >= 0) {
-      evaluations[savedIndex] = saved;
-    } else {
-      evaluations.push(saved);
-    }
-    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(evaluations));
+    const refreshedEvaluations = await this.getEvaluationsFromSupabase();
+    const saved = refreshedEvaluations.find(
+      (item) => String(item.databaseId) === String(persistedRow.id)
+    ) || mappedSaved;
 
     AuditService.logAction(
       actorId,
@@ -488,46 +577,6 @@ export class StorageService {
     );
 
     return saved;
-  }
-
-  public static async acknowledgeEvaluation(
-    evaluationId: string,
-    employeeId: string,
-    employeeName: string,
-    employeeRole: any,
-    employeeEmail: string,
-    notes?: string
-  ): Promise<Evaluation | null> {
-    const evaluations = await this.getEvaluationsFromSupabase();
-    const target = evaluations.find((e) => e.id === evaluationId);
-    if (!target) return null;
-
-    const acknowledged = await this.saveEvaluation(
-      {
-        ...target,
-        status: 'ACKNOWLEDGED',
-        acknowledgedAt: new Date().toISOString(),
-        acknowledgedBy: employeeName,
-        acknowledgementNotes: notes || '',
-        locked: true,
-      },
-      employeeId,
-      employeeName,
-      employeeRole,
-      employeeEmail
-    );
-
-    AuditService.logAction(
-      employeeId,
-      employeeName,
-      'EMPLOYEE',
-      'EVALUATION_ACKNOWLEDGED',
-      'ACKNOWLEDGEMENT',
-      evaluationId,
-      `Employee ${employeeName} acknowledged evaluation for ${acknowledged.quarter} ${acknowledged.year} (Final score: ${acknowledged.finalScore})`
-    );
-
-    return acknowledged;
   }
 
   // --- BACKUP & RESTORE ---

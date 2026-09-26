@@ -30,15 +30,9 @@ export const ARABIC_LEVELS: Record<EmployeeLevel, string> = {
 };
 
 export const ARABIC_STATUSES: Record<EvaluationStatus, { label: string; color: string }> = {
-  NOT_STARTED: { label: 'Not Started', color: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
   DRAFT: { label: 'Draft', color: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
-  SUBMITTED_BY_TEAM_LEADER: { label: 'Submitted by Team Leader', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
   UNDER_REVIEW: { label: 'Head Of Technical Review', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' },
-  REVIEWED: { label: 'Reviewed', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' },
-  HR_MANAGEMENT_APPROVED: { label: 'Management Approved', color: 'bg-purple-500/15 text-purple-300 border-purple-500/30' },
-  PUBLISHED: { label: 'Published to Employee', color: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
-  EMPLOYEE_VIEWED: { label: 'Viewed by Employee', color: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' },
-  ACKNOWLEDGED: { label: 'Acknowledged', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  APPROVED: { label: 'Approved', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
 };
 
 export const ARABIC_QUARTERS: Record<EvaluationQuarter, string> = {

@@ -14,15 +14,9 @@ export type EmployeeLevel = 'Junior' | 'Mid' | 'Senior' | 'Team Leader';
 export type EvaluationQuarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
 
 export type EvaluationStatus =
-  | 'NOT_STARTED'
   | 'DRAFT'
-  | 'SUBMITTED_BY_TEAM_LEADER'
   | 'UNDER_REVIEW'
-  | 'REVIEWED'
-  | 'HR_MANAGEMENT_APPROVED'
-  | 'PUBLISHED'
-  | 'EMPLOYEE_VIEWED'
-  | 'ACKNOWLEDGED';
+  | 'APPROVED';
 
 export type KPICategory = 'COMMON' | 'DEPARTMENT' | 'LEADERSHIP' | 'MANAGEMENT';
 

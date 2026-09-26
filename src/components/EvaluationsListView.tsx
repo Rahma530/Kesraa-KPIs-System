@@ -20,7 +20,7 @@ import { ARABIC_STATUSES, ARABIC_LEVELS, ARABIC_CLASSIFICATIONS } from '../local
 
 interface EvaluationsListViewProps {
   onSelectEvaluation: (evaluation: Evaluation) => void;
-  onNewEvaluation: (employeeId: string, quarter: Evaluation['quarter']) => void;
+  onNewEvaluation: (employeeId: string, quarter: Evaluation['quarter'], year: number) => void;
   onAnalyzeWithAI: (evaluation: Evaluation) => void;
 }
 
@@ -38,7 +38,7 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
     setSelectedQuarter,
     setSelectedYear,
   } = useData();
-  const { currentUser, canEvaluateEmployee, isExecutiveOrAdmin } = useAuth();
+  const { currentUser, canEvaluateEmployee, isExecutiveOrAdmin, isTechnicalReviewer } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
@@ -53,9 +53,8 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
   // Filter evaluations (memoized for performance)
   const filteredEvaluations = useMemo(() => evaluations.filter((evaluation) => {
     if (evaluation.quarter !== selectedQuarter || evaluation.year !== selectedYear) return false;
-    if (currentUser?.systemRole === 'EMPLOYEE') {
-      if (evaluation.employeeId !== currentUser.id) return false;
-    } else if (currentUser?.systemRole === 'TEAM_LEADER') {
+    if (currentUser?.systemRole === 'EMPLOYEE') return false;
+    if (currentUser?.systemRole === 'TEAM_LEADER') {
       if (evaluation.departmentId !== currentUser.departmentId && !isExecutiveOrAdmin()) return false;
     }
     if (departmentFilter !== 'ALL' && evaluation.departmentId !== departmentFilter) return false;
@@ -106,21 +105,15 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
     const selectedId = newEvaluationEmployeeId;
     setIsNewEvaluationOpen(false);
     setNewEvaluationEmployeeId('');
-    onNewEvaluation(selectedId, newEvaluationQuarter);
+    onNewEvaluation(selectedId, newEvaluationQuarter, newEvaluationYear);
   };
 
   const getStatusBadge = (status: EvaluationStatus) => {
     switch (status) {
-      case 'ACKNOWLEDGED':
+      case 'APPROVED':
         return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-      case 'PUBLISHED':
-        return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
-      case 'HR_MANAGEMENT_APPROVED':
-        return 'bg-purple-500/15 text-purple-300 border-purple-500/30';
-      case 'SUBMITTED_BY_TEAM_LEADER':
-        return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
-      case 'REVIEWED':
-        return 'bg-teal-500/15 text-teal-300 border-teal-500/30';
+      case 'UNDER_REVIEW':
+        return 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30';
       default:
         return 'bg-slate-500/15 text-slate-300 border-slate-500/30';
     }
@@ -228,12 +221,8 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
           >
             <option value="ALL">All Statuses</option>
             <option value="DRAFT">Draft</option>
-            <option value="SUBMITTED_BY_TEAM_LEADER">Submitted by Team Leader</option>
             <option value="UNDER_REVIEW">Head Of Technical Review</option>
-            <option value="REVIEWED">Reviewed</option>
-            <option value="HR_MANAGEMENT_APPROVED">Management Approved</option>
-            <option value="PUBLISHED">Published</option>
-            <option value="ACKNOWLEDGED">Acknowledged</option>
+            <option value="APPROVED">Approved</option>
           </select>
         </div>
       </div>
@@ -272,7 +261,11 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
                 </tr>
               ) : (
                 paginatedEvaluations.map((evalItem) => {
-                  const isLocked = evalItem.locked || ['HR_MANAGEMENT_APPROVED', 'PUBLISHED', 'ACKNOWLEDGED'].includes(evalItem.status);
+                  const isLocked = evalItem.locked || evalItem.status === 'APPROVED';
+                  const canEdit = !isLocked && (
+                    isTechnicalReviewer() ||
+                    (currentUser?.systemRole === 'TEAM_LEADER' && evalItem.status === 'DRAFT')
+                  );
                   const isSenior = evalItem.level === 'Senior';
                   const isTL = evalItem.level === 'Team Leader';
                   const isMid = evalItem.level === 'Mid';
@@ -349,8 +342,8 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
                           onClick={() => onSelectEvaluation(evalItem)}
                           className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-teal-300 hover:bg-white/10 hover:text-white transition-all"
                         >
-                          {isLocked ? <Eye className="h-3 w-3" /> : <FileEdit className="h-3 w-3" />}
-                          {isLocked ? 'View' : 'Edit Evaluation'}
+                          {canEdit ? <FileEdit className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                          {canEdit ? 'Edit Evaluation' : 'View Evaluation'}
                         </button>
 
                         <button

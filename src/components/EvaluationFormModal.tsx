@@ -9,8 +9,6 @@ import {
   Lock,
   Save,
   Send,
-  Eye,
-  CheckCheck,
   TrendingUp,
   User,
   Building2,
@@ -48,7 +46,23 @@ export const EvaluationFormModal: React.FC<EvaluationFormModalProps> = (props) =
   const { employees } = useData();
   const targetEmployee =
     props.employee ||
-    (props.evaluation ? employees.find((employee) => employee.id === props.evaluation?.employeeId) : null);
+    (props.evaluation
+      ? employees.find((employee) => employee.id === props.evaluation?.employeeId) || {
+          id: props.evaluation.employeeId,
+          name: props.evaluation.employeeName,
+          email: '',
+          departmentId: props.evaluation.departmentId,
+          departmentName: props.evaluation.departmentName,
+          role: props.evaluation.role,
+          level: props.evaluation.level,
+          startDate: props.evaluation.createdAt.slice(0, 10),
+          isActive: true,
+          isHeadTechnical: props.evaluation.isHeadTechnical,
+          systemRole: props.evaluation.level === 'Team Leader' ? 'TEAM_LEADER' : 'EMPLOYEE',
+          createdAt: props.evaluation.createdAt,
+          updatedAt: props.evaluation.updatedAt,
+        }
+      : null);
 
   if (!targetEmployee) return null;
 
@@ -61,20 +75,30 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   onClose,
   onSaved,
 }) => {
-  const { currentUser, canViewKPIWeights, canApproveEvaluations, canPublishEvaluations, isTechnicalReviewer } = useAuth();
-  const { settings, saveEvaluation, acknowledgeEvaluation, selectedQuarter, selectedYear } = useData();
+  const { currentUser, canViewKPIWeights, isTechnicalReviewer } = useAuth();
+  const { settings, saveEvaluation, selectedQuarter, selectedYear } = useData();
 
   // Eligibility calculation (minimum 2 months)
-  const eligibility = CalculationEngine.checkEligibility(
-    targetEmployee?.startDate || '2024-01-01',
-    new Date().toISOString(),
-    settings.minEmploymentMonths || 2
-  );
+  const eligibility = evaluation
+    ? {
+        isEligible: evaluation.isEligible,
+        tenureMonths: evaluation.tenureMonths,
+        reason: evaluation.eligibilityReason,
+      }
+    : CalculationEngine.checkEligibility(
+        targetEmployee.startDate || '2024-01-01',
+        new Date().toISOString(),
+        settings.minEmploymentMonths || 2
+      );
 
-  const isLocked = evaluation?.locked || ['HR_MANAGEMENT_APPROVED', 'PUBLISHED', 'ACKNOWLEDGED'].includes(evaluation?.status || '');
-  const isEmployeeView = currentUser?.systemRole === 'EMPLOYEE' && currentUser.id === targetEmployee?.id;
   const isCurrentUserHeadTechnical = isTechnicalReviewer();
   const isCurrentUserTeamLeader = currentUser?.systemRole === 'TEAM_LEADER';
+  const isApproved = evaluation?.status === 'APPROVED' || evaluation?.locked;
+  const canEdit = !isApproved && (
+    isCurrentUserHeadTechnical ||
+    (isCurrentUserTeamLeader && (!evaluation || evaluation.status === 'DRAFT'))
+  );
+  const isLocked = !canEdit;
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;
 
@@ -97,12 +121,12 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   const [strengths, setStrengths] = useState(evaluation?.strengths || '');
   const [improvements, setImprovements] = useState(evaluation?.improvements || '');
   const [developmentActions, setDevelopmentActions] = useState(evaluation?.developmentActions || '');
-  const [ackNotes, setAckNotes] = useState(evaluation?.acknowledgementNotes || '');
   const [activeGuideKpiId, setActiveGuideKpiId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showAiModal, setShowAiModal] = useState(false);
+  const [showApprovalConfirmation, setShowApprovalConfirmation] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<EvaluationAIRecommendations | undefined>(
     evaluation?.aiRecommendations
   );
@@ -169,11 +193,12 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   // Build Evaluation Payload
   const buildEvaluationPayload = (newStatus: EvaluationStatus): Evaluation => {
     const effectiveQuarter = evaluation?.quarter || selectedQuarter;
+    const effectiveYear = evaluation?.year || selectedYear;
     if (!effectiveQuarter) {
       throw new Error('Please select an evaluation quarter first.');
     }
     return {
-      id: evaluation?.id || `eval-${targetEmployee.id}-${effectiveQuarter}-${selectedYear}`,
+      id: evaluation?.id || `eval-${targetEmployee.id}-${effectiveQuarter}-${effectiveYear}`,
       databaseId: evaluation?.databaseId,
       employeeId: targetEmployee.id,
       employeeName: targetEmployee.name,
@@ -185,8 +210,8 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       role: targetEmployee.role,
       level: targetEmployee.level,
       quarter: effectiveQuarter,
-      year: evaluation?.year || selectedYear,
-      cycleId: `cycle-${effectiveQuarter}-${selectedYear}`,
+      year: effectiveYear,
+      cycleId: `cycle-${effectiveQuarter}-${effectiveYear}`,
       version: settings.activeVersion || 'v1.0',
       status: newStatus,
       isEligible: eligibility.isEligible,
@@ -203,7 +228,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       improvements,
       developmentActions,
       aiRecommendations,
-      locked: ['HR_MANAGEMENT_APPROVED', 'PUBLISHED', 'ACKNOWLEDGED'].includes(newStatus) || evaluation?.locked || false,
+      locked: newStatus === 'APPROVED',
       scores: calculated.itemScores,
       snapshotConfig: evaluation?.snapshotConfig || {
         version: settings.activeVersion,
@@ -215,12 +240,18 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
         kpis: activeKpis,
         classifications: settings.classifications,
       },
-      submittedAt: ['UNDER_REVIEW', 'SUBMITTED_BY_TEAM_LEADER', 'REVIEWED'].includes(newStatus) ? new Date().toISOString() : evaluation?.submittedAt,
-      submittedBy: ['UNDER_REVIEW', 'SUBMITTED_BY_TEAM_LEADER', 'REVIEWED'].includes(newStatus) ? currentUser?.name : evaluation?.submittedBy,
-      approvedAt: newStatus === 'HR_MANAGEMENT_APPROVED' ? new Date().toISOString() : evaluation?.approvedAt,
-      approvedBy: newStatus === 'HR_MANAGEMENT_APPROVED' ? currentUser?.name : evaluation?.approvedBy,
-      publishedAt: newStatus === 'PUBLISHED' ? new Date().toISOString() : evaluation?.publishedAt,
-      publishedBy: newStatus === 'PUBLISHED' ? currentUser?.name : evaluation?.publishedBy,
+      submittedAt: newStatus === 'UNDER_REVIEW'
+        ? evaluation?.status === 'UNDER_REVIEW'
+          ? evaluation.submittedAt
+          : new Date().toISOString()
+        : evaluation?.submittedAt,
+      submittedBy: newStatus === 'UNDER_REVIEW'
+        ? evaluation?.status === 'UNDER_REVIEW'
+          ? evaluation.submittedBy
+          : currentUser?.name
+        : evaluation?.submittedBy,
+      approvedAt: newStatus === 'APPROVED' ? new Date().toISOString() : evaluation?.approvedAt,
+      approvedBy: newStatus === 'APPROVED' ? currentUser?.name : evaluation?.approvedBy,
       createdAt: evaluation?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -240,28 +271,6 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
         error instanceof Error
           ? `The evaluation was not saved: ${error.message}`
           : 'The evaluation was not saved. Please check your connection and try again.'
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleAcknowledge = async () => {
-    if (!evaluation || isSaving) return;
-    setSaveError(null);
-    setIsSaving(true);
-    try {
-      const saved = await acknowledgeEvaluation(evaluation.id, ackNotes);
-      if (!saved) {
-        throw new Error('The evaluation could not be found in Supabase.');
-      }
-      onSaved(saved);
-    } catch (error) {
-      console.error('Evaluation acknowledgement failed:', error);
-      setSaveError(
-        error instanceof Error
-          ? `The acknowledgement was not saved: ${error.message}`
-          : 'The acknowledgement was not saved. Please check your connection and try again.'
       );
     } finally {
       setIsSaving(false);
@@ -661,36 +670,6 @@ Return valid JSON only, using this structure:
               </div>
             </div>
 
-            {/* Employee Acknowledgement Box (if published) */}
-            {evaluation?.status === 'PUBLISHED' && isEmployeeView && (
-              <div className="rounded-2xl border border-teal-500/30 bg-teal-500/10 p-4">
-                <h4 className="text-xs font-bold text-teal-200 mb-1">
-                  Employee Review and Acknowledgement
-                </h4>
-                <p className="text-xs text-teal-300/80 mb-2">
-                  Review the evaluation above. Acknowledgement records your response with the date and time.
-                </p>
-                <textarea
-                  id="textarea-ack-notes"
-                  rows={2}
-                  value={ackNotes}
-                  onChange={(e) => setAckNotes(e.target.value)}
-                  placeholder="Optional acknowledgement notes..."
-                  className="w-full rounded-xl border border-white/10 bg-white/5 p-2.5 text-xs text-white focus:outline-none"
-                />
-              </div>
-            )}
-
-            {evaluation?.status === 'ACKNOWLEDGED' && (
-              <div className="rounded-xl bg-emerald-500/15 p-3 text-xs text-emerald-300 border border-emerald-500/30">
-                ✓ Acknowledged by <span className="font-bold">{evaluation.acknowledgedBy}</span> on{' '}
-                {new Date(evaluation.acknowledgedAt || '').toLocaleString()}.
-                {evaluation.acknowledgementNotes && (
-                  <p className="mt-1 italic text-slate-300">"{evaluation.acknowledgementNotes}"</p>
-                )}
-              </div>
-            )}
-
           </div>
 
         </div>
@@ -703,8 +682,10 @@ Return valid JSON only, using this structure:
             </div>
           )}
           <div className="text-xs text-slate-400">
-            {isLocked
-              ? 'This evaluation is locked and archived.'
+            {evaluation?.status === 'APPROVED'
+              ? 'This evaluation is approved and locked.'
+              : isLocked
+              ? 'This evaluation is read-only for your role.'
               : eligibility.isEligible
               ? 'Review all KPI scores before submitting.'
               : 'Actions are disabled because the minimum tenure requirement has not been met.'}
@@ -720,8 +701,7 @@ Return valid JSON only, using this structure:
               Close
             </button>
 
-            {/* Smart Analysis Button (For TL, HR, Admin, Head Tech) AFTER evaluation exists */}
-            {evaluation && ['SUBMITTED_BY_TEAM_LEADER', 'HR_MANAGEMENT_APPROVED', 'PUBLISHED', 'ACKNOWLEDGED'].includes(evaluation.status) && (
+            {evaluation && ['UNDER_REVIEW', 'APPROVED'].includes(evaluation.status) && (
               <button
                 type="button"
                 onClick={() => setShowAiModal(true)}
@@ -733,11 +713,15 @@ Return valid JSON only, using this structure:
             )}
 
             {/* Draft Save */}
-            {!isLocked && eligibility.isEligible && (
+            {canEdit && eligibility.isEligible && (
               <button
                 id="btn-save-draft"
                 type="button"
-                onClick={() => handleAction('DRAFT')}
+                onClick={() => handleAction(
+                  isCurrentUserHeadTechnical && evaluation?.status === 'UNDER_REVIEW'
+                    ? 'UNDER_REVIEW'
+                    : 'DRAFT'
+                )}
                 disabled={isSaving}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/15 transition-all shadow-sm disabled:opacity-50"
               >
@@ -758,76 +742,94 @@ Return valid JSON only, using this structure:
               </button>
             )}
 
-            {/* Team Leaders submit to the Head Of Technical; the Head completes the review. */}
-            {!isLocked && eligibility.isEligible && (isCurrentUserTeamLeader || isCurrentUserHeadTechnical) && (
+            {canEdit && eligibility.isEligible && isCurrentUserTeamLeader &&
+              (!evaluation || evaluation.status === 'DRAFT') && (
               <button
                 id="btn-submit-evaluation"
                 type="button"
-                onClick={() => handleAction(isCurrentUserTeamLeader ? 'UNDER_REVIEW' : 'REVIEWED')}
+                onClick={() => handleAction('UNDER_REVIEW')}
                 disabled={isSaving}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 transition-all disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" />
-                {isSaving
-                  ? 'Submitting...'
-                  : isCurrentUserTeamLeader
-                  ? 'Submit To Manager'
-                  : 'Submit'}
+                {isSaving ? 'Submitting...' : 'Submit To Manager'}
               </button>
             )}
 
-            {/* Approve Evaluation (HR, CEO, Admin) */}
-            {canApproveEvaluations() &&
-              ['REVIEWED'].includes(
-                evaluation?.status || ''
-              ) && (
-                <button
-                  id="btn-approve-evaluation"
-                  type="button"
-                  onClick={() => handleAction('HR_MANAGEMENT_APPROVED')}
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-500 transition-all disabled:opacity-50"
-                >
-                  <CheckCheck className="h-3.5 w-3.5" />
-                  {isSaving ? 'Approving...' : 'Approve Evaluation'}
-                </button>
-              )}
-
-            {/* Publish Evaluation (HR, Admin) */}
-            {canPublishEvaluations() &&
-              ['HR_MANAGEMENT_APPROVED', 'REVIEWED'].includes(
-                evaluation?.status || ''
-              ) && (
-                <button
-                  id="btn-publish-evaluation"
-                  type="button"
-                  onClick={() => handleAction('PUBLISHED')}
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-500/25 hover:bg-blue-500 transition-all disabled:opacity-50"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  {isSaving ? 'Publishing...' : 'Publish to Employee'}
-                </button>
-              )}
-
-            {/* Employee Acknowledge Button */}
-            {evaluation?.status === 'PUBLISHED' && isEmployeeView && (
+            {canEdit && eligibility.isEligible && isCurrentUserHeadTechnical &&
+              evaluation?.status === 'UNDER_REVIEW' && (
               <button
-                id="btn-acknowledge-evaluation"
+                id="btn-approve-evaluation"
                 type="button"
-                onClick={handleAcknowledge}
+                onClick={() => {
+                  setSaveError(null);
+                  setShowApprovalConfirmation(true);
+                }}
                 disabled={isSaving}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 transition-all disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-500 transition-all disabled:opacity-50"
               >
                 <CheckCircle className="h-3.5 w-3.5" />
-                {isSaving ? 'Acknowledging...' : 'Acknowledge Evaluation'}
+                Approve
               </button>
             )}
+
           </div>
         </div>
 
       </div>
     </div>
+
+    {showApprovalConfirmation && (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="approval-confirmation-title"
+          className="w-full max-w-md rounded-2xl border border-emerald-500/30 bg-slate-950 p-6 shadow-2xl"
+        >
+          <div className="mb-4 flex items-start gap-3">
+            <div className="rounded-xl bg-emerald-500/15 p-2 text-emerald-300">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 id="approval-confirmation-title" className="text-base font-bold text-white">
+                Confirm final approval
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-300">
+                Submitting will mark this evaluation as APPROVED and lock it from further editing.
+              </p>
+            </div>
+          </div>
+
+          {saveError && (
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+              {saveError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowApprovalConfirmation(false)}
+              disabled={isSaving}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              id="btn-confirm-approval-submit"
+              type="button"
+              onClick={() => handleAction('APPROVED')}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              <Send className="h-3.5 w-3.5" />
+              {isSaving ? 'Submitting...' : 'Submit'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {evaluation && targetEmployee && (
       <AiRecommendationsModal

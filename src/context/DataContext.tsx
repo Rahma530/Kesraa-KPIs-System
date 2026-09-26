@@ -23,12 +23,11 @@ export interface DataContextType {
   setSelectedQuarter: (q: EvaluationQuarter | '') => void;
   setSelectedYear: (y: number) => void;
   saveEvaluation: (evaluation: Evaluation) => Promise<Evaluation>;
-  acknowledgeEvaluation: (evaluationId: string, notes?: string) => Promise<Evaluation | null>;
   saveSettings: (settings: SystemSettings) => void;
   saveEmployee: (emp: Employee) => void;
   deleteEmployee: (id: string) => void;
   saveDepartments: (depts: Department[]) => void;
-  refreshData: () => Promise<void>;
+  refreshData: () => Promise<Evaluation[]>;
   exportBackup: () => string;
   restoreBackup: (jsonStr: string) => { success: boolean; message: string };
   importEmployeesCSV: (csv: string) => { importedCount: number; errors: string[] };
@@ -60,6 +59,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshLocalData();
     const remoteEvaluations = await StorageService.getEvaluationsFromSupabase();
     setEvaluations(remoteEvaluations);
+    return remoteEvaluations;
   };
 
   useEffect(() => {
@@ -85,28 +85,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userEmail: actorEmail || actorName,
       actionType: 'EVALUATE_EMPLOYEE',
       details: `Evaluated employee ${evaluation.employeeId} in ${evaluation.quarter} ${evaluation.year}`
-    });
-
-    await refreshData();
-    return saved;
-  };
-
-  const acknowledgeEvaluation = async (evaluationId: string, notes?: string): Promise<Evaluation | null> => {
-    if (!currentUser) return null;
-    const saved = await StorageService.acknowledgeEvaluation(
-      evaluationId,
-      currentUser.id,
-      currentUser.name,
-      currentUser.systemRole,
-      currentUser.email,
-      notes
-    );
-    
-    logActivity({
-      userRole: currentUser.systemRole,
-      userEmail: currentUser.email,
-      actionType: 'ACKNOWLEDGE_EVALUATION',
-      details: `Acknowledged evaluation ${evaluationId}`
     });
 
     await refreshData();
@@ -210,7 +188,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSelectedQuarter,
         setSelectedYear,
         saveEvaluation,
-        acknowledgeEvaluation,
         saveSettings,
         saveEmployee,
         deleteEmployee,

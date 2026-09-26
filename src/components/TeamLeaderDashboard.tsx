@@ -166,7 +166,7 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
                     {currentEval ? (
                       <div className="flex flex-col sm:items-end shrink-0">
                         <span className="text-[10px] text-slate-400 mb-1">Status</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${currentEval.status === 'PUBLISHED' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-teal-500/20 text-teal-300 border-teal-500/30'}`}>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${currentEval.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-teal-500/20 text-teal-300 border-teal-500/30'}`}>
                           {ARABIC_STATUSES[currentEval.status]?.label || currentEval.status}
                         </span>
                       </div>
