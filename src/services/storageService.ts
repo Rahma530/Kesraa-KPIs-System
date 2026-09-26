@@ -48,6 +48,11 @@ interface SupabaseEvaluationRow {
   details?: string | Partial<Evaluation> | null;
 }
 
+const removeLegacyEmployeePasswords = (employees: Employee[]): Employee[] => employees.map((employee) => {
+  const { password: _discardedPassword, ...safeEmployee } = employee as Employee & { password?: unknown };
+  return safeEmployee as Employee;
+});
+
 export class StorageService {
   public static initialize(): void {
     const isInit = localStorage.getItem(STORAGE_KEYS.INITIALIZED);
@@ -93,35 +98,43 @@ export class StorageService {
   public static getEmployees(): Employee[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-      const employees: Employee[] = data ? JSON.parse(data) : INITIAL_EMPLOYEES;
+      const parsedEmployees: Employee[] = data ? JSON.parse(data) : INITIAL_EMPLOYEES;
+      const containedLegacyPasswords = parsedEmployees.some((employee) => 'password' in employee);
+      const employees = removeLegacyEmployeePasswords(parsedEmployees);
+      if (data && containedLegacyPasswords) {
+        localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
+      }
       return employees.map(normalizeEmployeeDepartment).map(normalizeEmployeeRole);
     } catch {
-      return INITIAL_EMPLOYEES.map(normalizeEmployeeDepartment).map(normalizeEmployeeRole);
+      return removeLegacyEmployeePasswords(INITIAL_EMPLOYEES)
+        .map(normalizeEmployeeDepartment)
+        .map(normalizeEmployeeRole);
     }
   }
 
   public static saveEmployee(employee: Employee, actorId: string, actorName: string, actorRole: any): void {
     const employees = this.getEmployees();
-    const index = employees.findIndex((e) => e.id === employee.id);
+    const safeEmployee = removeLegacyEmployeePasswords([employee])[0];
+    const index = employees.findIndex((e) => e.id === safeEmployee.id);
     let prev: Employee | undefined;
 
     if (index >= 0) {
       prev = employees[index];
-      employees[index] = { ...employee, updatedAt: new Date().toISOString() };
+      employees[index] = { ...safeEmployee, updatedAt: new Date().toISOString() };
       AuditService.logAction(
         actorId,
         actorName,
         actorRole,
         'EMPLOYEE_UPDATED',
         'EMPLOYEE',
-        employee.id,
-        `Updated profile for employee: ${employee.name}`,
+        safeEmployee.id,
+        `Updated profile for employee: ${safeEmployee.name}`,
         JSON.stringify(prev),
         JSON.stringify(employees[index])
       );
     } else {
       employees.push({
-        ...employee,
+        ...safeEmployee,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -131,8 +144,8 @@ export class StorageService {
         actorRole,
         'EMPLOYEE_CREATED',
         'EMPLOYEE',
-        employee.id,
-        `Created new employee record: ${employee.name} (${employee.role})`
+        safeEmployee.id,
+        `Created new employee record: ${safeEmployee.name} (${safeEmployee.role})`
       );
     }
 
@@ -544,7 +557,10 @@ export class StorageService {
       }
 
       localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(data.departments));
-      localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(data.employees));
+      localStorage.setItem(
+        STORAGE_KEYS.EMPLOYEES,
+        JSON.stringify(removeLegacyEmployeePasswords(data.employees))
+      );
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));
       localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(data.evaluations));
 

@@ -3,13 +3,14 @@ import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, Mail, Lock, LockOpen } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
-  const { login } = useAuth();
+  const { login, authError, clearAuthError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       setError('Please enter your email and password.');
@@ -17,9 +18,13 @@ export const LoginView: React.FC = () => {
     }
     try {
       setError('');
-      login(email, password);
-    } catch (err: any) {
-      setError(err.message);
+      clearAuthError();
+      setIsSubmitting(true);
+      await login(email, password);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not sign in.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -71,6 +76,7 @@ export const LoginView: React.FC = () => {
                     onChange={(e) => {
                       setEmail(e.target.value);
                       setError('');
+                      clearAuthError();
                     }}
                     className="w-full rounded-xl border border-white/10 bg-black/40 py-3 pl-10 pr-4 text-sm text-white transition-all focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/50"
                     dir="ltr"
@@ -98,6 +104,7 @@ export const LoginView: React.FC = () => {
                     onChange={(e) => {
                       setPassword(e.target.value);
                       setError('');
+                      clearAuthError();
                     }}
                     className="w-full rounded-xl border border-white/10 bg-black/40 py-3 pl-10 pr-4 text-sm text-white transition-all focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/50"
                     dir="ltr"
@@ -107,13 +114,16 @@ export const LoginView: React.FC = () => {
               </div>
             </div>
 
-            {error && <p className="mt-2 text-center text-xs text-rose-400">{error}</p>}
+            {(error || authError) && (
+              <p className="mt-2 text-center text-xs text-rose-400">{error || authError}</p>
+            )}
 
             <button
               type="submit"
-              className="mt-2 w-full rounded-xl bg-teal-600 py-3 font-semibold text-white shadow-lg shadow-teal-500/25 transition-colors hover:bg-teal-500"
+              disabled={isSubmitting}
+              className="mt-2 w-full rounded-xl bg-teal-600 py-3 font-semibold text-white shadow-lg shadow-teal-500/25 transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Sign In
+              {isSubmitting ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
         </div>

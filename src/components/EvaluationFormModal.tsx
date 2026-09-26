@@ -61,7 +61,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   onClose,
   onSaved,
 }) => {
-  const { currentUser, canViewKPIWeights, canApproveEvaluations, canPublishEvaluations } = useAuth();
+  const { currentUser, canViewKPIWeights, canApproveEvaluations, canPublishEvaluations, isTechnicalReviewer } = useAuth();
   const { settings, saveEvaluation, acknowledgeEvaluation, selectedQuarter, selectedYear } = useData();
 
   // Eligibility calculation (minimum 2 months)
@@ -73,7 +73,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
 
   const isLocked = evaluation?.locked || ['HR_MANAGEMENT_APPROVED', 'PUBLISHED', 'ACKNOWLEDGED'].includes(evaluation?.status || '');
   const isEmployeeView = currentUser?.systemRole === 'EMPLOYEE' && currentUser.id === targetEmployee?.id;
-  const isCurrentUserHeadTechnical = currentUser?.systemRole === 'HEAD_TECHNICAL';
+  const isCurrentUserHeadTechnical = isTechnicalReviewer();
   const isCurrentUserTeamLeader = currentUser?.systemRole === 'TEAM_LEADER';
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;

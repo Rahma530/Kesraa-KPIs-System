@@ -13,9 +13,14 @@ export const ARABIC_ROLES: Record<SystemRole, { label: string; desc: string }> =
   CEO: { label: 'CEO', desc: 'Approves evaluations and views executive reports' },
   HR: { label: 'HR', desc: 'Manages employee records, approvals, and publishing' },
   HEAD_TECHNICAL: { label: 'Head Technical', desc: 'Evaluates departments, team leaders, and employees' },
+  AI_ENGINEER: { label: 'AI Engineer', desc: 'Supports technical evaluation and employee management' },
   TEAM_LEADER: { label: 'Team Leader', desc: 'Reviews and evaluates department employees' },
   EMPLOYEE: { label: 'Employee / Agent', desc: 'Views and acknowledges personal evaluations' },
 };
+
+export const ADDITIONAL_PERMISSION_LABELS = {
+  ADMIN: { label: 'System Administrator', desc: 'Additional system-management permission' },
+} as const;
 
 export const ARABIC_LEVELS: Record<EmployeeLevel, string> = {
   Junior: 'Junior',

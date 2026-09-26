@@ -12,10 +12,17 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { EvaluationQuarter } from '../types';
-import { ARABIC_ROLES, ARABIC_QUARTERS, t } from '../locales/ar';
+import { ADDITIONAL_PERMISSION_LABELS, ARABIC_ROLES, ARABIC_QUARTERS, t } from '../locales/ar';
 
 export const Navbar: React.FC = () => {
-  const { currentUser, logout, canManageSettings, canManageEmployees } = useAuth();
+  const {
+    currentUser,
+    logout,
+    canManageSettings,
+    canManageEmployees,
+    hasCapability,
+    isTechnicalReviewer,
+  } = useAuth();
   const { selectedQuarter, selectedYear, setSelectedQuarter, setSelectedYear } = useData();
   const location = useLocation();
   const navigate = useNavigate();
@@ -33,6 +40,8 @@ export const Navbar: React.FC = () => {
         return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
       case 'HEAD_TECHNICAL':
         return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+      case 'AI_ENGINEER':
+        return 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
       case 'TEAM_LEADER':
         return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
       default:
@@ -50,6 +59,7 @@ export const Navbar: React.FC = () => {
     if (['ADMIN', 'HR'].includes(currentUser.systemRole)) return '/admin';
     if (currentUser.systemRole === 'CEO') return '/ceo';
     if (currentUser.systemRole === 'HEAD_TECHNICAL') return '/head-technical';
+    if (currentUser.systemRole === 'AI_ENGINEER') return '/ai-engineer';
     if (currentUser.systemRole === 'TEAM_LEADER') return '/team-leader';
     return '/employee';
   };
@@ -127,6 +137,14 @@ export const Navbar: React.FC = () => {
                 >
                   {currentUser ? ARABIC_ROLES[currentUser.systemRole]?.label : 'Employee'}
                 </span>
+                {currentUser?.additionalPermissions?.map((permission) => (
+                  <span
+                    key={permission}
+                    className="rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 text-[10px] font-bold tracking-wide text-purple-300 whitespace-nowrap"
+                  >
+                    {ADDITIONAL_PERMISSION_LABELS[permission].label}
+                  </span>
+                ))}
               </div>
             </div>
 
@@ -176,7 +194,7 @@ export const Navbar: React.FC = () => {
       <div className="border-t border-white/5 px-4 sm:px-6 lg:px-8" style={{ background: 'rgba(255, 255, 255, 0.02)' }} role="tablist">
         <div className="mx-auto flex w-full gap-2 overflow-x-auto py-2.5 scrollbar-none">
           {/* Dashboard - Visible to ADMIN, HR, CEO, HEAD_TECHNICAL */}
-          {['ADMIN', 'HR', 'CEO'].includes(currentUser?.systemRole || '') && (
+          {hasCapability('VIEW_EXECUTIVE_DASHBOARD') && !isTechnicalReviewer() && (
              <Link
               to={`${base}/dashboard`}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all whitespace-nowrap ${
@@ -191,7 +209,7 @@ export const Navbar: React.FC = () => {
           )}
 
           {/* Head Technical: Analytics Dashboard + Comprehensive Team View */}
-          {currentUser?.systemRole === 'HEAD_TECHNICAL' && (
+          {isTechnicalReviewer() && (
             <>
               <Link
                 to={`${base}/analytics`}
@@ -273,7 +291,7 @@ export const Navbar: React.FC = () => {
             </Link>
           )}
 
-          {['ADMIN', 'HR', 'CEO'].includes(currentUser?.systemRole || '') && (
+          {hasCapability('VIEW_AUDIT_LOGS') && (
             <Link
               to={`${base}/audit`}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all whitespace-nowrap ${

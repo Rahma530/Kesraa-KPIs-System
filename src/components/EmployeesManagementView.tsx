@@ -42,7 +42,6 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
   // Form State
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
-  const [formPassword, setFormPassword] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formDeptId, setFormDeptId] = useState(departments[0]?.id || 'dept-am');
   const [formRole, setFormRole] = useState('');
@@ -55,7 +54,6 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     setEditingEmp(null);
     setFormName('');
     setFormEmail('');
-    setFormPassword('');
     setFormPhone('');
     const defaultDeptId = currentUser?.systemRole === 'TEAM_LEADER' ? currentUser.departmentId : (departments[0]?.id || 'dept-am');
     setFormDeptId(defaultDeptId);
@@ -72,7 +70,6 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     setEditingEmp(emp);
     setFormName(emp.name);
     setFormEmail(emp.email);
-    setFormPassword(emp.password || '');
     setFormPhone(emp.phone || '');
     setFormDeptId(emp.departmentId);
     setFormRole(emp.role);
@@ -91,13 +88,14 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
     const isAiDepartment = dept.id === 'dept-ai';
     const isTeamLeader = !isAiDepartment && (formSystemRole === 'TEAM_LEADER' || formLevel === 'Team Leader');
-    const normalizedSystemRole = isAiDepartment ? 'EMPLOYEE' : formSystemRole;
+    const normalizedSystemRole = isAiDepartment && formSystemRole !== 'AI_ENGINEER'
+      ? 'EMPLOYEE'
+      : formSystemRole;
     const normalizedLevel = isAiDepartment && formLevel === 'Team Leader' ? 'Senior' : formLevel;
     const payload: Employee = {
       id: editingEmp ? editingEmp.id : `emp-${Date.now()}`,
       name: formName,
       email: formEmail,
-      password: formPassword || undefined,
       phone: formPhone,
       departmentId: dept.id,
       departmentName: dept.name,
@@ -398,17 +396,6 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                 </div>
               </div>
 
-              <div>
-                <label className="text-slate-300 font-bold block mb-1">Password (optional)</label>
-                <input
-                  type="text"
-                  value={formPassword}
-                  onChange={(e) => setFormPassword(e.target.value)}
-                  placeholder="Default: 123456"
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-teal-500 focus:outline-none"
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-300 font-bold block mb-1">Department</label>
@@ -480,12 +467,14 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                       const nextRole = e.target.value as SystemRole;
                       setFormSystemRole(nextRole);
                       if (nextRole === 'HEAD_TECHNICAL') setFormRole('Head Of Technical');
+                      if (nextRole === 'AI_ENGINEER') setFormRole('AI Engineer');
                       if (nextRole === 'TEAM_LEADER') setFormLevel('Team Leader');
                       if (nextRole === 'EMPLOYEE' && formLevel === 'Team Leader') setFormLevel('Mid');
                     }}
                     className="w-full rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-white focus:outline-none"
                   >
                     <option value="EMPLOYEE">Employee / Agent</option>
+                    {formDeptId === 'dept-ai' && <option value="AI_ENGINEER">AI Engineer</option>}
                     {formDeptId !== 'dept-ai' && <option value="TEAM_LEADER">Team Leader</option>}
                     <option value="HEAD_TECHNICAL">Head Of Technical</option>
                     <option value="HR">HR</option>

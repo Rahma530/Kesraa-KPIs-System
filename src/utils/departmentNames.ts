@@ -62,6 +62,9 @@ export const getStandardRole = (
   level: Employee['level'],
   systemRole?: Employee['systemRole']
 ): string => {
+  if (systemRole === 'AI_ENGINEER') {
+    return 'AI Engineer';
+  }
   if (
     systemRole === 'HEAD_TECHNICAL' ||
     /head\s*(of)?\s*technical|creative director/i.test(currentRole)
@@ -100,7 +103,7 @@ export const normalizeEmployeeRole = (employee: Employee): Employee => {
       employee.level,
       employee.systemRole
     ),
-    ...(isAiEmployee
+    ...(isAiEmployee && employee.systemRole !== 'AI_ENGINEER'
       ? {
           level: employee.level === 'Team Leader' ? ('Senior' as const) : employee.level,
           systemRole: 'EMPLOYEE' as const,

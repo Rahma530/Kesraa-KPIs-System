@@ -12,9 +12,11 @@ import { EvaluationFormModal } from './components/EvaluationFormModal';
 import { AIInsightsModal } from './components/AIInsightsModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { LoginView } from './components/LoginView';
+import { SetPasswordView } from './components/SetPasswordView';
 import { TeamLeaderDashboard } from './components/TeamLeaderDashboard';
 import { HeadTechnicalDashboard } from './components/HeadTechnicalDashboard';
 import { Evaluation, Employee, EvaluationQuarter } from './types';
+import { AuthorizationCapability } from './auth/authorization';
 
 // Layout component containing Navbar, Footer, and Modals
 const AppLayout: React.FC = () => {
@@ -143,6 +145,14 @@ const RouteWrapper: React.FC<{ component: React.FC<any> }> = ({ component: Compo
   />;
 };
 
+const CapabilityRoute: React.FC<{
+  capability: AuthorizationCapability;
+  children: React.ReactNode;
+}> = ({ capability, children }) => {
+  const { hasCapability } = useAuth();
+  return hasCapability(capability) ? <>{children}</> : <Navigate to="/" replace />;
+};
+
 // Smart Redirector for the root path
 const RootRedirector: React.FC = () => {
   const { isAuthenticated, currentUser } = useAuth();
@@ -153,6 +163,7 @@ const RootRedirector: React.FC = () => {
   if (['ADMIN', 'HR'].includes(currentUser.systemRole)) return <Navigate to="/admin/dashboard" replace />;
   if (currentUser.systemRole === 'CEO') return <Navigate to="/ceo/dashboard" replace />;
   if (currentUser.systemRole === 'HEAD_TECHNICAL') return <Navigate to="/head-technical/dashboard" replace />;
+  if (currentUser.systemRole === 'AI_ENGINEER') return <Navigate to="/ai-engineer/dashboard" replace />;
   if (currentUser.systemRole === 'TEAM_LEADER') return <Navigate to="/team-leader/my-team" replace />;
   return <Navigate to="/employee/evaluations" replace />;
 };
@@ -167,9 +178,20 @@ const LoginRoute: React.FC = () => {
 };
 
 const AppRoutes: React.FC = () => {
+  const { isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-sm font-semibold text-slate-300">
+        Verifying session...
+      </div>
+    );
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/auth/setup-password" element={<SetPasswordView />} />
       <Route path="/" element={<RootRedirector />} />
       
       <Route element={<AppLayout />}>
@@ -191,6 +213,30 @@ const AppRoutes: React.FC = () => {
 
         {/* Head Technical Routes */}
         <Route path="/head-technical">
+          <Route path="dashboard" element={<RouteWrapper component={HeadTechnicalDashboard} />} />
+          <Route path="analytics" element={<RouteWrapper component={DashboardView} />} />
+          <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
+          <Route path="employees" element={<RouteWrapper component={EmployeesManagementView} />} />
+          <Route
+            path="settings"
+            element={(
+              <CapabilityRoute capability="MANAGE_SETTINGS">
+                <RouteWrapper component={SettingsView} />
+              </CapabilityRoute>
+            )}
+          />
+          <Route
+            path="audit"
+            element={(
+              <CapabilityRoute capability="VIEW_AUDIT_LOGS">
+                <RouteWrapper component={AuditLogsView} />
+              </CapabilityRoute>
+            )}
+          />
+        </Route>
+
+        {/* AI Engineer uses the technical-review workspace without receiving ADMIN. */}
+        <Route path="/ai-engineer">
           <Route path="dashboard" element={<RouteWrapper component={HeadTechnicalDashboard} />} />
           <Route path="analytics" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />

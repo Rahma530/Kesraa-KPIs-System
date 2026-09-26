@@ -27,7 +27,7 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
   onStartEvaluation,
   onViewEvaluation,
 }) => {
-  const { currentUser, canEvaluateEmployee } = useAuth();
+  const { currentUser, canEvaluateEmployee, isTechnicalReviewer } = useAuth();
   const { employees, evaluations, departments, selectedQuarter, selectedYear, saveEmployee } = useData();
 
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
@@ -43,10 +43,10 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
     departmentId: '',
   });
 
-  if (!currentUser || currentUser.systemRole !== 'HEAD_TECHNICAL') {
+  if (!currentUser || !isTechnicalReviewer()) {
     return (
       <div className="flex h-64 items-center justify-center text-slate-400">
-        This page is available to the Head Technical role only.
+        This page is available to technical reviewers only.
       </div>
     );
   }

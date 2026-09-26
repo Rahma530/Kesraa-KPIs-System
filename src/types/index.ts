@@ -1,4 +1,13 @@
-export type SystemRole = 'ADMIN' | 'HR' | 'CEO' | 'TEAM_LEADER' | 'HEAD_TECHNICAL' | 'EMPLOYEE';
+export type SystemRole =
+  | 'ADMIN'
+  | 'HR'
+  | 'CEO'
+  | 'TEAM_LEADER'
+  | 'HEAD_TECHNICAL'
+  | 'AI_ENGINEER'
+  | 'EMPLOYEE';
+
+export type AdditionalSystemPermission = 'ADMIN';
 
 export type EmployeeLevel = 'Junior' | 'Mid' | 'Senior' | 'Team Leader';
 
@@ -58,9 +67,11 @@ export interface Department {
 
 export interface Employee {
   id: string;
+  authUserId?: string;
+  accountEnabled?: boolean;
+  additionalPermissions?: AdditionalSystemPermission[];
   name: string;
   email: string;
-  password?: string;
   departmentId: string;
   departmentName: string;
   role: string;
