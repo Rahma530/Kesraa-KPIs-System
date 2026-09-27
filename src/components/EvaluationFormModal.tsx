@@ -14,7 +14,8 @@ import {
   Building2,
   Calendar,
   Brain,
-  FileDown
+  FileDown,
+  RotateCcw
 } from 'lucide-react';
 import {
   Evaluation,
@@ -30,6 +31,18 @@ import { CalculationEngine } from '../services/calculationEngine';
 import { ARABIC_STATUSES, ARABIC_CLASSIFICATIONS } from '../locales/ar';
 import { AiRecommendationsModal } from './AiRecommendationsModal';
 import { printEvaluationReport } from '../services/evaluationReportService';
+import { isTechnicalReviewer as isTechnicalReviewerEmployee } from '../auth/authorization';
+import { logActivity } from '../utils/auditLogger';
+
+// Shared edit rule for the evaluation form and the dashboards that open it.
+export const canEditEvaluation = (
+  user: Employee | null | undefined,
+  evaluation?: Evaluation | null
+): boolean =>
+  !(evaluation?.status === 'APPROVED' || evaluation?.locked) && (
+    isTechnicalReviewerEmployee(user) ||
+    (user?.systemRole === 'TEAM_LEADER' && (!evaluation || evaluation.status === 'DRAFT'))
+  );
 
 interface EvaluationFormModalProps {
   evaluation?: Evaluation | null;
@@ -94,17 +107,14 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   const isCurrentUserHeadTechnical = isTechnicalReviewer();
   const isCurrentUserTeamLeader = currentUser?.systemRole === 'TEAM_LEADER';
   const isApproved = evaluation?.status === 'APPROVED' || evaluation?.locked;
-  const canEdit = !isApproved && (
-    isCurrentUserHeadTechnical ||
-    (isCurrentUserTeamLeader && (!evaluation || evaluation.status === 'DRAFT'))
-  );
+  const canEdit = canEditEvaluation(currentUser, evaluation);
   const isLocked = !canEdit;
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;
 
   // Active or Snapshot KPIs
   const activeKpis: KPIDefinition[] = React.useMemo(() => {
-    if (evaluation?.snapshotConfig?.kpis) {
+    if (evaluation?.snapshotConfig?.kpis?.length) {
       return evaluation.snapshotConfig.kpis;
     }
     const common = settings.commonKPIs.filter((k) => k.isActive);
@@ -127,6 +137,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [showApprovalConfirmation, setShowApprovalConfirmation] = useState(false);
+  const [showReopenConfirmation, setShowReopenConfirmation] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<EvaluationAIRecommendations | undefined>(
     evaluation?.aiRecommendations
   );
@@ -134,21 +145,23 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   // Initialize scores
   useEffect(() => {
     const initial: Record<string, { score: number; notes: string }> = {};
-    if (evaluation?.scores && evaluation.scores.length > 0) {
-      evaluation.scores.forEach((s) => {
-        initial[s.kpiId] = { score: s.score, notes: s.notes || '' };
-      });
-    } else {
-      activeKpis.forEach((k) => {
+    const savedScores = new Map<string, EvaluationScoreItem>(
+      (evaluation?.scores || []).map((s) => [s.kpiId, s])
+    );
+    activeKpis.forEach((k) => {
+      const saved = savedScores.get(k.id);
+      if (saved) {
+        initial[k.id] = { score: saved.score, notes: saved.notes || '' };
+      } else if (!isLocked) {
         initial[k.id] = { score: 8, notes: '' }; // Default whole score 8
-      });
-    }
+      }
+    });
     setScoresState(initial);
-  }, [evaluation, activeKpis]);
+  }, [evaluation, activeKpis, isLocked]);
 
   // Live score calculation
   const calculated = React.useMemo(() => {
-    if (evaluation && evaluation.scores.length === 0) {
+    if (isLocked && evaluation && evaluation.scores.length === 0) {
       return {
         commonScore: evaluation.commonScore,
         departmentScore: evaluation.departmentScore,
@@ -172,7 +185,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       targetEmployee.isHeadTechnical || false,
       settings.classifications
     );
-  }, [scoresState, activeKpis, targetEmployee, settings.classifications, evaluation]);
+  }, [scoresState, activeKpis, targetEmployee, settings.classifications, evaluation, isLocked]);
 
   const handleScoreChange = (kpiId: string, newScore: number) => {
     if (isLocked) return;
@@ -230,7 +243,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       aiRecommendations,
       locked: newStatus === 'APPROVED',
       scores: calculated.itemScores,
-      snapshotConfig: evaluation?.snapshotConfig || {
+      snapshotConfig: evaluation?.snapshotConfig?.kpis?.length ? evaluation.snapshotConfig : {
         version: settings.activeVersion,
         minEmploymentMonths: settings.minEmploymentMonths,
         commonSkillsPercent: settings.commonSkillsPercent,
@@ -263,6 +276,12 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     setIsSaving(true);
     try {
       const payload = buildEvaluationPayload(newStatus);
+      if (!payload.snapshotConfig?.kpis?.length || !payload.scores?.length) {
+        setSaveError(
+          'The evaluation was not saved: it has no evaluation questions or scores. Close the form, reopen the evaluation, and try again.'
+        );
+        return;
+      }
       const saved = await saveEvaluation(payload);
       onSaved(saved);
     } catch (error) {
@@ -271,6 +290,41 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
         error instanceof Error
           ? `The evaluation was not saved: ${error.message}`
           : 'The evaluation was not saved. Please check your connection and try again.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Reopen saves the persisted evaluation as-is; only the workflow fields change.
+  const handleReopen = async () => {
+    if (!evaluation || isSaving) return;
+    setSaveError(null);
+    setIsSaving(true);
+    try {
+      const reopened: Evaluation & { reopenedAt: string; reopenedBy?: string } = {
+        ...evaluation,
+        status: 'UNDER_REVIEW',
+        locked: false,
+        approvedAt: undefined,
+        approvedBy: undefined,
+        reopenedAt: new Date().toISOString(),
+        reopenedBy: currentUser?.name,
+      };
+      const saved = await saveEvaluation(reopened);
+      void logActivity({
+        userRole: currentUser?.systemRole || 'UNKNOWN',
+        userEmail: currentUser?.email,
+        actionType: 'EVALUATION_REOPENED',
+        details: `Reopened evaluation ${evaluation.id} for ${evaluation.employeeName} (${evaluation.employeeId}) in ${evaluation.quarter} ${evaluation.year}`,
+      });
+      onSaved(saved);
+    } catch (error) {
+      console.error('Evaluation reopen failed:', error);
+      setSaveError(
+        error instanceof Error
+          ? `The evaluation was not reopened: ${error.message}`
+          : 'The evaluation was not reopened. Please check your connection and try again.'
       );
     } finally {
       setIsSaving(false);
@@ -712,6 +766,22 @@ Return valid JSON only, using this structure:
               </button>
             )}
 
+            {isApproved && isCurrentUserHeadTechnical && evaluation && (
+              <button
+                id="btn-reopen-evaluation"
+                type="button"
+                onClick={() => {
+                  setSaveError(null);
+                  setShowReopenConfirmation(true);
+                }}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-amber-500/25 hover:bg-amber-500 transition-all disabled:opacity-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reopen
+              </button>
+            )}
+
             {/* Draft Save */}
             {canEdit && eligibility.isEligible && (
               <button
@@ -756,8 +826,10 @@ Return valid JSON only, using this structure:
               </button>
             )}
 
-            {canEdit && eligibility.isEligible && isCurrentUserHeadTechnical &&
-              evaluation?.status === 'UNDER_REVIEW' && (
+            {canEdit && eligibility.isEligible && isCurrentUserHeadTechnical && (
+              evaluation?.status === 'UNDER_REVIEW' ||
+              (isTeamLeader && (!evaluation || evaluation.status === 'DRAFT'))
+            ) && (
               <button
                 id="btn-approve-evaluation"
                 type="button"
@@ -825,6 +897,58 @@ Return valid JSON only, using this structure:
             >
               <Send className="h-3.5 w-3.5" />
               {isSaving ? 'Submitting...' : 'Submit'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showReopenConfirmation && (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reopen-confirmation-title"
+          className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-slate-950 p-6 shadow-2xl"
+        >
+          <div className="mb-4 flex items-start gap-3">
+            <div className="rounded-xl bg-amber-500/15 p-2 text-amber-300">
+              <RotateCcw className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 id="reopen-confirmation-title" className="text-base font-bold text-white">
+                Reopen approved evaluation
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-300">
+                This evaluation will return to UNDER REVIEW and be unlocked for editing. Its saved scores and notes are kept, and it must be approved again.
+              </p>
+            </div>
+          </div>
+
+          {saveError && (
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+              {saveError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowReopenConfirmation(false)}
+              disabled={isSaving}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              id="btn-confirm-reopen"
+              type="button"
+              onClick={handleReopen}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {isSaving ? 'Reopening...' : 'Reopen'}
             </button>
           </div>
         </div>
