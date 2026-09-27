@@ -44,6 +44,17 @@ export const canEditEvaluation = (
     (user?.systemRole === 'TEAM_LEADER' && (!evaluation || evaluation.status === 'DRAFT'))
   );
 
+// The head evaluates directly (no team-leader submission step) when the evaluatee is a
+// team leader, or when no active TEAM_LEADER exists in the evaluatee's department.
+export const isDirectHeadEvaluation = (evaluatee: Employee, employees: Employee[]): boolean =>
+  evaluatee.level === 'Team Leader' ||
+  evaluatee.systemRole === 'TEAM_LEADER' ||
+  !employees.some((employee) =>
+    employee.departmentId === evaluatee.departmentId &&
+    employee.systemRole === 'TEAM_LEADER' &&
+    employee.isActive !== false
+  );
+
 interface EvaluationFormModalProps {
   evaluation?: Evaluation | null;
   employee?: Employee | null;
@@ -89,7 +100,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   onSaved,
 }) => {
   const { currentUser, canViewKPIWeights, isTechnicalReviewer } = useAuth();
-  const { settings, saveEvaluation, selectedQuarter, selectedYear } = useData();
+  const { settings, saveEvaluation, selectedQuarter, selectedYear, employees } = useData();
 
   // Eligibility calculation (minimum 2 months)
   const eligibility = evaluation
@@ -111,6 +122,9 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   const isLocked = !canEdit;
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;
+  const canHeadActOnDraft = isCurrentUserHeadTechnical &&
+    isDirectHeadEvaluation(targetEmployee, employees) &&
+    (!evaluation || evaluation.status === 'DRAFT');
 
   // Active or Snapshot KPIs
   const activeKpis: KPIDefinition[] = React.useMemo(() => {
@@ -755,7 +769,7 @@ Return valid JSON only, using this structure:
               Close
             </button>
 
-            {evaluation && ['UNDER_REVIEW', 'APPROVED'].includes(evaluation.status) && (
+            {evaluation && (['UNDER_REVIEW', 'APPROVED'].includes(evaluation.status) || canHeadActOnDraft) && (
               <button
                 type="button"
                 onClick={() => setShowAiModal(true)}
@@ -827,8 +841,7 @@ Return valid JSON only, using this structure:
             )}
 
             {canEdit && eligibility.isEligible && isCurrentUserHeadTechnical && (
-              evaluation?.status === 'UNDER_REVIEW' ||
-              (isTeamLeader && (!evaluation || evaluation.status === 'DRAFT'))
+              evaluation?.status === 'UNDER_REVIEW' || canHeadActOnDraft
             ) && (
               <button
                 id="btn-approve-evaluation"
