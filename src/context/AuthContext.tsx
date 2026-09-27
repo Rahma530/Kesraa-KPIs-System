@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User } from '@supabase/supabase-js';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { AuthChangeEvent, User } from '@supabase/supabase-js';
 import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
 import { StorageService } from '../services/storageService';
 import { supabase } from '../lib/supabase';
@@ -16,10 +16,13 @@ export interface AuthContextType {
   allUsers: Employee[];
   isAuthenticated: boolean;
   isLoading: boolean;
+  isPasswordSetupFlow: boolean;
+  hasPasswordSetupSession: boolean;
   authError: string;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   clearAuthError: () => void;
+  finishPasswordSetup: () => void;
   canManageSettings: () => boolean;
   canManageEmployees: () => boolean;
   canApproveEvaluations: () => boolean;
@@ -67,6 +70,20 @@ class EmployeeProfileError extends Error {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const isPasswordSetupRedirect = (): boolean => {
+  if (typeof window === 'undefined') return false;
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const authType = hashParams.get('type') || searchParams.get('type');
+  const isSetupType = authType === 'invite' || authType === 'recovery';
+  const hasAuthTokens = hashParams.has('access_token') && hashParams.has('refresh_token');
+  const hasAuthCode = searchParams.has('code');
+  const isSetupPath = window.location.pathname === '/auth/setup-password';
+
+  return isSetupType || isSetupPath || (isSetupPath && (hasAuthTokens || hasAuthCode));
+};
 
 const getAdditionalPermissions = (user: User): AdditionalSystemPermission[] => {
   const metadataPermissions = user.app_metadata?.additional_permissions;
@@ -147,7 +164,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [allUsers, setAllUsers] = useState<Employee[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPasswordSetupFlow, setIsPasswordSetupFlow] = useState(isPasswordSetupRedirect);
+  const [hasPasswordSetupSession, setHasPasswordSetupSession] = useState(false);
   const [authError, setAuthError] = useState('');
+  const passwordSetupFlowRef = useRef(isPasswordSetupFlow);
+
+  const updatePasswordSetupFlow = (active: boolean) => {
+    passwordSetupFlowRef.current = active;
+    setIsPasswordSetupFlow(active);
+    if (!active) setHasPasswordSetupSession(false);
+  };
 
   const clearAuthenticatedProfile = () => {
     setCurrentUser(null);
@@ -172,48 +198,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.auth.signOut();
     };
 
+    const handleAuthSession = async (event: AuthChangeEvent, session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) => {
+      const isSetupEvent = event === 'PASSWORD_RECOVERY' || passwordSetupFlowRef.current;
+      if (isSetupEvent) {
+        updatePasswordSetupFlow(true);
+        setHasPasswordSetupSession(Boolean(session));
+        clearAuthenticatedProfile();
+        if (mounted) setIsLoading(false);
+        return;
+      }
+
+      if (!session) {
+        clearAuthenticatedProfile();
+        if (mounted) setIsLoading(false);
+        return;
+      }
+
+      try {
+        await loadAuthenticatedProfile(session.user);
+        if (mounted) setAuthError('');
+      } catch (profileError) {
+        await rejectUnusableSession(profileError);
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      window.setTimeout(() => {
+        if (!mounted) return;
+        void handleAuthSession(event, session);
+      }, 0);
+    });
+
     const restoreSession = async () => {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
         if (mounted) setAuthError(`Could not restore your session: ${error.message}`);
         clearAuthenticatedProfile();
+        if (passwordSetupFlowRef.current) setHasPasswordSetupSession(false);
         return;
       }
-      if (!data.session) {
-        clearAuthenticatedProfile();
-        return;
-      }
-      try {
-        await loadAuthenticatedProfile(data.session.user);
-        if (mounted) setAuthError('');
-      } catch (profileError) {
-        await rejectUnusableSession(profileError);
-      }
+      await handleAuthSession('INITIAL_SESSION', data.session);
     };
 
     void restoreSession().finally(() => {
       if (mounted) setIsLoading(false);
-    });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      if (!session) {
-        clearAuthenticatedProfile();
-        setIsLoading(false);
-        return;
-      }
-
-      window.setTimeout(() => {
-        if (!mounted) return;
-        void loadAuthenticatedProfile(session.user)
-          .then(() => {
-            if (mounted) setAuthError('');
-          })
-          .catch(rejectUnusableSession)
-          .finally(() => {
-            if (mounted) setIsLoading(false);
-          });
-      }, 0);
     });
 
     return () => {
@@ -313,10 +344,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         allUsers,
         isAuthenticated,
         isLoading,
+        isPasswordSetupFlow,
+        hasPasswordSetupSession,
         authError,
         login,
         logout,
         clearAuthError: () => setAuthError(''),
+        finishPasswordSetup: () => updatePasswordSetupFlow(false),
         canManageSettings,
         canManageEmployees,
         canApproveEvaluations,

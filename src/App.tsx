@@ -246,7 +246,8 @@ const LoginRoute: React.FC = () => {
 };
 
 const AppRoutes: React.FC = () => {
-  const { isLoading } = useAuth();
+  const { isLoading, isPasswordSetupFlow } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -254,6 +255,10 @@ const AppRoutes: React.FC = () => {
         Verifying session...
       </div>
     );
+  }
+
+  if (isPasswordSetupFlow && location.pathname !== '/auth/setup-password') {
+    return <Navigate to="/auth/setup-password" replace />;
   }
 
   return (
