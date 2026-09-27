@@ -1,5 +1,5 @@
 // @ts-nocheck -- This file runs in Supabase Edge Functions' Deno runtime.
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.112.4';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
@@ -82,7 +82,7 @@ Deno.serve(async (request) => {
     return response(403, { error: 'Only an enabled administrator can invite employee accounts.' }, allowedOrigin);
   }
 
-  let body: { employeeId?: unknown; additionalPermissions?: unknown };
+  let body: { employeeId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -92,16 +92,6 @@ Deno.serve(async (request) => {
   if (!employeeId || employeeId.length > 100) {
     return response(400, { error: 'A valid employeeId is required.' }, allowedOrigin);
   }
-  const requestedPermissions = body.additionalPermissions === undefined
-    ? []
-    : body.additionalPermissions;
-  if (
-    !Array.isArray(requestedPermissions) ||
-    requestedPermissions.some((permission) => permission !== 'ADMIN')
-  ) {
-    return response(400, { error: 'additionalPermissions contains an unsupported permission.' }, allowedOrigin);
-  }
-
   const { data: employee, error: employeeError } = await adminClient
     .from('employees')
     .select('id,email,auth_user_id,account_enabled')
@@ -114,48 +104,150 @@ Deno.serve(async (request) => {
     return response(404, { error: 'Employee not found.' }, allowedOrigin);
   }
   if (employee.account_enabled !== true) {
-    return response(409, { error: 'Enable the employee account before sending an invitation.' }, allowedOrigin);
-  }
-  if (employee.auth_user_id) {
-    return response(409, { error: 'This employee is already linked to an Auth account.' }, allowedOrigin);
+    return response(409, { error: 'Enable the employee account before generating a setup link.' }, allowedOrigin);
   }
   if (typeof employee.email !== 'string' || !employee.email.includes('@')) {
     return response(422, { error: 'The employee does not have a valid email address.' }, allowedOrigin);
   }
 
-  const { data: invitation, error: invitationError } = await adminClient.auth.admin.inviteUserByEmail(
-    employee.email,
-    { redirectTo: inviteRedirectUrl },
-  );
-  if (invitationError || !invitation.user) {
-    return response(409, { error: invitationError?.message || 'Could not create the invitation.' }, allowedOrigin);
+  const normalizedEmail = employee.email.trim().toLowerCase();
+  if (employee.auth_user_id) {
+    const { data: linkedAuthUser, error: linkedAuthUserError } =
+      await adminClient.auth.admin.getUserById(employee.auth_user_id);
+    if (linkedAuthUserError || !linkedAuthUser.user) {
+      return response(409, { error: 'The linked Auth account could not be found.' }, allowedOrigin);
+    }
+    if (linkedAuthUser.user.email?.trim().toLowerCase() !== normalizedEmail) {
+      return response(409, { error: 'The employee email does not match the linked Auth account.' }, allowedOrigin);
+    }
+
+    const { data: recoveryLink, error: recoveryLinkError } =
+      await adminClient.auth.admin.generateLink({
+        type: 'recovery',
+        email: normalizedEmail,
+        options: { redirectTo: inviteRedirectUrl },
+      });
+    if (recoveryLinkError || !recoveryLink.properties?.action_link) {
+      return response(409, {
+        error: recoveryLinkError?.message || 'Could not generate a setup link for the linked Auth account.',
+      }, allowedOrigin);
+    }
+
+    return response(200, {
+      employeeId: employee.id,
+      authUserId: linkedAuthUser.user.id,
+      alreadyLinked: true,
+      invitationLink: recoveryLink.properties.action_link,
+      delivery: 'manual',
+    }, allowedOrigin);
   }
 
-  const { error: permissionError } = await adminClient.auth.admin.updateUserById(
-    invitation.user.id,
-    { app_metadata: { additional_permissions: requestedPermissions } },
-  );
-  if (permissionError) {
-    await adminClient.auth.admin.deleteUser(invitation.user.id);
-    return response(409, { error: 'The invitation permissions could not be configured.' }, allowedOrigin);
+  let existingAuthUser = null;
+  const perPage = 1000;
+  for (let page = 1; existingAuthUser === null; page += 1) {
+    const { data: usersPage, error: usersError } = await adminClient.auth.admin.listUsers({ page, perPage });
+    if (usersError) {
+      return response(500, { error: 'Could not verify whether the employee already has an Auth account.' }, allowedOrigin);
+    }
+    existingAuthUser = usersPage.users.find(
+      (user) => user.email?.trim().toLowerCase() === normalizedEmail,
+    ) || null;
+    if (existingAuthUser || usersPage.users.length < perPage) break;
+  }
+
+  if (existingAuthUser) {
+    const { data: existingLink, error: existingLinkError } = await adminClient
+      .from('employees')
+      .select('id')
+      .eq('auth_user_id', existingAuthUser.id)
+      .maybeSingle();
+    if (existingLinkError) {
+      return response(500, { error: 'Could not verify the existing Auth account link.' }, allowedOrigin);
+    }
+    if (existingLink && existingLink.id !== employee.id) {
+      return response(409, { error: 'This email is already linked to a different employee profile.' }, allowedOrigin);
+    }
+    if (existingLink?.id === employee.id) {
+      return response(200, {
+        employeeId: employee.id,
+        authUserId: existingAuthUser.id,
+        alreadyLinked: true,
+        invitationLink: null,
+        delivery: 'manual',
+      }, allowedOrigin);
+    }
+  }
+
+  let authUser = existingAuthUser;
+  let actionLink = '';
+  let createdAuthUser = false;
+
+  if (existingAuthUser) {
+    const { data: recoveryLink, error: recoveryLinkError } = await adminClient.auth.admin.generateLink({
+      type: 'recovery',
+      email: normalizedEmail,
+      options: { redirectTo: inviteRedirectUrl },
+    });
+    if (recoveryLinkError || !recoveryLink.properties?.action_link) {
+      return response(409, {
+        error: recoveryLinkError?.message || 'Could not generate a setup link for the existing Auth account.',
+      }, allowedOrigin);
+    }
+    authUser = recoveryLink.user || existingAuthUser;
+    actionLink = recoveryLink.properties.action_link;
+  } else {
+    const { data: invitation, error: invitationError } = await adminClient.auth.admin.generateLink({
+      type: 'invite',
+      email: normalizedEmail,
+      options: { redirectTo: inviteRedirectUrl },
+    });
+    if (
+      invitationError ||
+      !invitation.user ||
+      !invitation.properties?.action_link
+    ) {
+      return response(409, {
+        error: invitationError?.message || 'Could not create the Auth user and setup link.',
+      }, allowedOrigin);
+    }
+    authUser = invitation.user;
+    actionLink = invitation.properties.action_link;
+    createdAuthUser = true;
+
+    const { error: permissionError } = await adminClient.auth.admin.updateUserById(
+      authUser.id,
+      { app_metadata: { additional_permissions: [] } },
+    );
+    if (permissionError) {
+      await adminClient.auth.admin.deleteUser(authUser.id);
+      return response(409, { error: 'The Auth account permissions could not be initialized.' }, allowedOrigin);
+    }
+  }
+
+  if (!authUser || !actionLink) {
+    return response(409, { error: 'Could not prepare the employee setup link.' }, allowedOrigin);
   }
 
   const { data: linkedEmployee, error: linkError } = await adminClient
     .from('employees')
-    .update({ auth_user_id: invitation.user.id })
+    .update({ auth_user_id: authUser.id })
     .eq('id', employee.id)
     .is('auth_user_id', null)
     .select('id,auth_user_id')
     .maybeSingle();
 
   if (linkError || !linkedEmployee) {
-    await adminClient.auth.admin.deleteUser(invitation.user.id);
-    return response(409, { error: 'The invitation could not be linked to the employee profile.' }, allowedOrigin);
+    if (createdAuthUser) {
+      await adminClient.auth.admin.deleteUser(authUser.id);
+    }
+    return response(409, { error: 'The Auth account could not be linked to the employee profile.' }, allowedOrigin);
   }
 
   return response(201, {
     employeeId: linkedEmployee.id,
     authUserId: linkedEmployee.auth_user_id,
-    invitationSent: true,
+    alreadyLinked: false,
+    invitationLink: actionLink,
+    delivery: 'manual',
   }, allowedOrigin);
 });
