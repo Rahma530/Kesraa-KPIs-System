@@ -24,7 +24,16 @@ Deno.serve(async (request) => {
     return response(403, { error: 'Origin is not allowed.' }, allowedOrigin);
   }
   if (request.method === 'OPTIONS') {
-    return response(204, {}, allowedOrigin);
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...jsonHeaders,
+        'Access-Control-Allow-Origin': allowedOrigin,
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Vary': 'Origin',
+      },
+    });
   }
   if (request.method !== 'POST') {
     return response(405, { error: 'Method not allowed.' }, allowedOrigin);
