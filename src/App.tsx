@@ -17,6 +17,7 @@ import { TeamLeaderDashboard } from './components/TeamLeaderDashboard';
 import { HeadTechnicalDashboard } from './components/HeadTechnicalDashboard';
 import { Evaluation, Employee, EvaluationQuarter } from './types';
 import { AuthorizationCapability } from './auth/authorization';
+import { StorageService } from './services/storageService';
 
 // Layout component containing Navbar, Footer, and Modals
 const AppLayout: React.FC = () => {
@@ -53,16 +54,22 @@ const AppLayout: React.FC = () => {
   ) => {
     if (evalItem) {
       try {
-        const sharedEvaluations = await refreshData();
-        const persistedEvaluation = sharedEvaluations.find((candidate) =>
-          evalItem.databaseId !== undefined
-            ? String(candidate.databaseId) === String(evalItem.databaseId)
-            : candidate.id === evalItem.id
-        ) || sharedEvaluations.find((candidate) =>
-          candidate.employeeId === evalItem.employeeId &&
-          candidate.quarter === evalItem.quarter &&
-          candidate.year === evalItem.year
-        );
+        // Load only the selected row; fall back to the full shared refresh if that fails.
+        let persistedEvaluation: Evaluation | null | undefined = evalItem.databaseId !== undefined
+          ? await StorageService.getEvaluationFromSupabase(evalItem.databaseId)
+          : null;
+        if (!persistedEvaluation) {
+          const sharedEvaluations = await refreshData();
+          persistedEvaluation = sharedEvaluations.find((candidate) =>
+            evalItem.databaseId !== undefined
+              ? String(candidate.databaseId) === String(evalItem.databaseId)
+              : candidate.id === evalItem.id
+          ) || sharedEvaluations.find((candidate) =>
+            candidate.employeeId === evalItem.employeeId &&
+            candidate.quarter === evalItem.quarter &&
+            candidate.year === evalItem.year
+          );
+        }
 
         if (!persistedEvaluation) {
           window.alert('This evaluation could not be found in Supabase. Please refresh and try again.');
@@ -93,14 +100,25 @@ const AppLayout: React.FC = () => {
         return;
       }
       try {
-        const sharedEvaluations = await refreshData();
-        const effectiveQuarter = requestedQuarter || selectedQuarter;
+        const effectiveQuarter = (requestedQuarter || selectedQuarter) as EvaluationQuarter;
         const effectiveYear = requestedYear || selectedYear;
-        const existingEvaluation = sharedEvaluations.find((candidate) =>
-          candidate.employeeId === employeeId &&
-          candidate.quarter === effectiveQuarter &&
-          candidate.year === effectiveYear
-        );
+        // Query only this employee/period; fall back to the full shared refresh on error.
+        let existingEvaluation: Evaluation | null | undefined;
+        try {
+          existingEvaluation = await StorageService.findEvaluationForPeriodFromSupabase(
+            employeeId,
+            effectiveQuarter,
+            effectiveYear
+          );
+        } catch (lookupError) {
+          console.warn('Filtered evaluation lookup failed; loading all evaluations instead.', lookupError);
+          const sharedEvaluations = await refreshData();
+          existingEvaluation = sharedEvaluations.find((candidate) =>
+            candidate.employeeId === employeeId &&
+            candidate.quarter === effectiveQuarter &&
+            candidate.year === effectiveYear
+          );
+        }
 
         if (existingEvaluation) {
           if (!canViewEvaluation(existingEvaluation)) {
