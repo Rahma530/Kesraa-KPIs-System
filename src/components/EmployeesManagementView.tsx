@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Plus,
   Search,
@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { CalculationEngine } from '../services/calculationEngine';
 import { ARABIC_ROLES, ARABIC_LEVELS } from '../locales/ar';
 import { supabase } from '../lib/supabase';
+import { hasAdditionalPermission } from '../auth/authorization';
 import {
   getRoleOptions,
   getStandardRole,
@@ -40,6 +41,11 @@ interface EmployeeInvitationResult {
   delivery: 'manual';
 }
 
+interface AccountFeedback {
+  type: 'success' | 'error';
+  message: string;
+}
+
 export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = ({
   onOpenGoogleSheets,
 }) => {
@@ -55,9 +61,52 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
   const [invitationError, setInvitationError] = useState('');
   const [isGeneratingInvitation, setIsGeneratingInvitation] = useState(false);
   const [invitationCopied, setInvitationCopied] = useState(false);
+  const [accountEnabledByEmployeeId, setAccountEnabledByEmployeeId] = useState<Record<string, boolean>>({});
+  const [updatingAccountEmployeeId, setUpdatingAccountEmployeeId] = useState<string | null>(null);
+  const [accountFeedback, setAccountFeedback] = useState<AccountFeedback | null>(null);
 
-  const canInviteEmployees = currentUser?.systemRole === 'ADMIN' ||
-    currentUser?.additionalPermissions?.includes('ADMIN') === true;
+  const canAdministerAccounts = hasAdditionalPermission(currentUser, 'ADMIN');
+
+  useEffect(() => {
+    if (!canAdministerAccounts) {
+      setAccountEnabledByEmployeeId({});
+      return;
+    }
+
+    let isActive = true;
+    const loadAccountStatuses = async () => {
+      const employeeIds = employees.map((employee) => employee.id);
+      if (employeeIds.length === 0) {
+        if (isActive) setAccountEnabledByEmployeeId({});
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('employees')
+        .select('id,account_enabled')
+        .in('id', employeeIds);
+
+      if (!isActive) return;
+      if (error) {
+        setAccountFeedback({
+          type: 'error',
+          message: `Could not load employee account statuses: ${error.message}`,
+        });
+        return;
+      }
+
+      setAccountEnabledByEmployeeId(
+        Object.fromEntries(
+          (data || []).map((employee) => [employee.id, employee.account_enabled === true])
+        )
+      );
+    };
+
+    void loadAccountStatuses();
+    return () => {
+      isActive = false;
+    };
+  }, [canAdministerAccounts, employees]);
 
   // Form State
   const [formName, setFormName] = useState('');
@@ -142,7 +191,11 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
   };
 
   const generateInvitationLink = async (employee: Employee) => {
-    if (!canInviteEmployees || isGeneratingInvitation) return;
+    if (
+      !canAdministerAccounts ||
+      accountEnabledByEmployeeId[employee.id] !== true ||
+      isGeneratingInvitation
+    ) return;
 
     setInvitationEmployee(employee);
     setInvitationResult(null);
@@ -195,6 +248,47 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     } catch {
       setInvitationCopied(false);
       setInvitationError('Could not copy automatically. Select and copy the link manually.');
+    }
+  };
+
+  const updateEmployeeAccountStatus = async (employee: Employee, accountEnabled: boolean) => {
+    if (!canAdministerAccounts || updatingAccountEmployeeId) return;
+    if (
+      !accountEnabled &&
+      !window.confirm(
+        `Disable the account for ${employee.name}? Their Auth user will remain linked, but they will not be able to use the system.`
+      )
+    ) return;
+
+    setUpdatingAccountEmployeeId(employee.id);
+    setAccountFeedback(null);
+    try {
+      const { data, error } = await supabase
+        .from('employees')
+        .update({ account_enabled: accountEnabled })
+        .eq('id', employee.id)
+        .select('id,account_enabled')
+        .single();
+
+      if (error) throw error;
+
+      setAccountEnabledByEmployeeId((current) => ({
+        ...current,
+        [data.id]: data.account_enabled === true,
+      }));
+      setAccountFeedback({
+        type: 'success',
+        message: `${employee.name}'s account was ${accountEnabled ? 'enabled' : 'disabled'} successfully.`,
+      });
+    } catch (error) {
+      setAccountFeedback({
+        type: 'error',
+        message: error instanceof Error
+          ? error.message
+          : `Could not ${accountEnabled ? 'enable' : 'disable'} the employee account.`,
+      });
+    } finally {
+      setUpdatingAccountEmployeeId(null);
     }
   };
 
@@ -252,6 +346,24 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
           )}
         </div>
       </div>
+
+      {accountFeedback && (
+        <div
+          className={`flex items-center gap-2 rounded-xl border p-3 text-xs ${
+            accountFeedback.type === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+              : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+          }`}
+          role="status"
+        >
+          {accountFeedback.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+          ) : (
+            <AlertCircle className="h-4 w-4 shrink-0" />
+          )}
+          {accountFeedback.message}
+        </div>
+      )}
 
       {/* Filter and Search Bar (Frosted Capsule) */}
       <div
@@ -327,6 +439,8 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                   const isSenior = emp.level === 'Senior';
                   const isTL = emp.level === 'Team Leader';
                   const isMid = emp.level === 'Mid';
+                  const accountEnabled = accountEnabledByEmployeeId[emp.id];
+                  const isUpdatingAccount = updatingAccountEmployeeId === emp.id;
 
                   return (
                     <tr key={emp.id} className="hover:bg-white/5 transition-colors">
@@ -389,10 +503,27 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                         )}
                       </td>
 
-                      <td className="px-5 py-4 text-right space-x-2">
+                      <td className="px-5 py-4 text-right">
                         {canManageEmployees() && (
-                          <>
-                            {canInviteEmployees && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {canAdministerAccounts && typeof accountEnabled === 'boolean' && (
+                              <button
+                                type="button"
+                                onClick={() => updateEmployeeAccountStatus(emp, !accountEnabled)}
+                                disabled={updatingAccountEmployeeId !== null}
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-50 ${
+                                  accountEnabled
+                                    ? 'border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20'
+                                    : 'border-teal-500/30 bg-teal-500/10 text-teal-300 hover:bg-teal-500/20'
+                                }`}
+                              >
+                                {isUpdatingAccount && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                {isUpdatingAccount
+                                  ? accountEnabled ? 'Disabling...' : 'Enabling...'
+                                  : accountEnabled ? 'Disable Account' : 'Enable Account'}
+                              </button>
+                            )}
+                            {canAdministerAccounts && accountEnabled === true && (
                               <button
                                 id={`btn-invite-emp-${emp.id}`}
                                 onClick={() => generateInvitationLink(emp)}
@@ -430,7 +561,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          </>
+                          </div>
                         )}
                       </td>
                     </tr>
