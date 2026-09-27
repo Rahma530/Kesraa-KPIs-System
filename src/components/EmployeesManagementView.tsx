@@ -11,6 +11,9 @@ import {
   Download,
   Upload,
   UserPlus,
+  Link2,
+  Copy,
+  Loader2,
   X
 } from 'lucide-react';
 import { Employee, EmployeeLevel, SystemRole } from '../types';
@@ -18,6 +21,7 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { CalculationEngine } from '../services/calculationEngine';
 import { ARABIC_ROLES, ARABIC_LEVELS } from '../locales/ar';
+import { supabase } from '../lib/supabase';
 import {
   getRoleOptions,
   getStandardRole,
@@ -26,6 +30,14 @@ import {
 
 interface EmployeesManagementViewProps {
   onOpenGoogleSheets: () => void;
+}
+
+interface EmployeeInvitationResult {
+  employeeId: string;
+  authUserId: string;
+  alreadyLinked: boolean;
+  invitationLink: string | null;
+  delivery: 'manual';
 }
 
 export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = ({
@@ -38,6 +50,14 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
   const [deptFilter, setDeptFilter] = useState('ALL');
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [invitationEmployee, setInvitationEmployee] = useState<Employee | null>(null);
+  const [invitationResult, setInvitationResult] = useState<EmployeeInvitationResult | null>(null);
+  const [invitationError, setInvitationError] = useState('');
+  const [isGeneratingInvitation, setIsGeneratingInvitation] = useState(false);
+  const [invitationCopied, setInvitationCopied] = useState(false);
+
+  const canInviteEmployees = currentUser?.systemRole === 'ADMIN' ||
+    currentUser?.additionalPermissions?.includes('ADMIN') === true;
 
   // Form State
   const [formName, setFormName] = useState('');
@@ -111,6 +131,71 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
     saveEmployee(payload);
     setIsModalOpen(false);
+  };
+
+  const closeInvitationResult = () => {
+    if (isGeneratingInvitation) return;
+    setInvitationEmployee(null);
+    setInvitationResult(null);
+    setInvitationError('');
+    setInvitationCopied(false);
+  };
+
+  const generateInvitationLink = async (employee: Employee) => {
+    if (!canInviteEmployees || isGeneratingInvitation) return;
+
+    setInvitationEmployee(employee);
+    setInvitationResult(null);
+    setInvitationError('');
+    setInvitationCopied(false);
+    setIsGeneratingInvitation(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke<EmployeeInvitationResult>('invite-employee', {
+        body: { employeeId: employee.id },
+      });
+
+      if (error) {
+        let message = error.message || 'Could not generate the employee setup link.';
+        const errorResponse = (error as { context?: Response }).context;
+        if (errorResponse) {
+          try {
+            const errorBody = await errorResponse.clone().json() as { error?: unknown };
+            if (typeof errorBody.error === 'string') message = errorBody.error;
+          } catch {
+            // Keep the safe client error when the function response is not JSON.
+          }
+        }
+        throw new Error(message);
+      }
+
+      if (!data) {
+        throw new Error('The invitation service returned no result.');
+      }
+      if (!data.alreadyLinked && !data.invitationLink) {
+        throw new Error('The invitation service did not return a setup link.');
+      }
+
+      setInvitationResult(data);
+    } catch (error) {
+      setInvitationError(
+        error instanceof Error ? error.message : 'Could not generate the employee setup link.'
+      );
+    } finally {
+      setIsGeneratingInvitation(false);
+    }
+  };
+
+  const copyInvitationLink = async () => {
+    if (!invitationResult?.invitationLink) return;
+    try {
+      await navigator.clipboard.writeText(invitationResult.invitationLink);
+      setInvitationCopied(true);
+      setInvitationError('');
+    } catch {
+      setInvitationCopied(false);
+      setInvitationError('Could not copy automatically. Select and copy the link manually.');
+    }
   };
 
   const filteredEmployees = employees.filter((emp) => {
@@ -307,6 +392,24 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                       <td className="px-5 py-4 text-right space-x-2">
                         {canManageEmployees() && (
                           <>
+                            {canInviteEmployees && (
+                              <button
+                                id={`btn-invite-emp-${emp.id}`}
+                                onClick={() => generateInvitationLink(emp)}
+                                disabled={isGeneratingInvitation}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-50"
+                                title="Generate setup link"
+                              >
+                                {isGeneratingInvitation && invitationEmployee?.id === emp.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Link2 className="h-3.5 w-3.5" />
+                                )}
+                                {isGeneratingInvitation && invitationEmployee?.id === emp.id
+                                  ? 'Generating...'
+                                  : 'Generate Setup Link'}
+                              </button>
+                            )}
                             <button
                               id={`btn-edit-emp-${emp.id}`}
                               onClick={() => openEditModal(emp)}
@@ -338,6 +441,88 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
           </table>
         </div>
       </div>
+
+      {invitationEmployee && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(10, 13, 17, 0.88)' }}>
+          <div className="relative w-full max-w-xl rounded-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h3 className="text-base font-semibold text-white">Employee setup link</h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  {invitationEmployee.name} · {invitationEmployee.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeInvitationResult}
+                disabled={isGeneratingInvitation}
+                className="rounded-xl p-1 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                aria-label="Close setup link dialog"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="py-5">
+              {isGeneratingInvitation && (
+                <div className="flex items-center gap-2 rounded-xl border border-teal-500/20 bg-teal-500/10 p-4 text-xs text-teal-200">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Securely generating the one-time setup link...
+                </div>
+              )}
+
+              {invitationError && (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
+                  {invitationError}
+                </div>
+              )}
+
+              {invitationResult?.alreadyLinked && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+                  This employee is already linked to an Auth account. No new invitation or setup link was created.
+                </div>
+              )}
+
+              {invitationResult?.invitationLink && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-200">
+                    Copy this one-time link and send it manually to the employee by WhatsApp, email, or another secure channel. No email was sent automatically.
+                  </div>
+                  <div className="flex items-stretch gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={invitationResult.invitationLink}
+                      onFocus={(event) => event.currentTarget.select()}
+                      aria-label="Employee setup link"
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 focus:border-emerald-500/60 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyInvitationLink}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {invitationCopied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end border-t border-white/10 pt-4">
+              <button
+                type="button"
+                onClick={closeInvitationResult}
+                disabled={isGeneratingInvitation}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add / Edit Employee Modal */}
       {isModalOpen && (
