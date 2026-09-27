@@ -430,8 +430,16 @@ export class StorageService {
       throw new Error(`Could not load evaluations from Supabase: ${error.message}`);
     }
 
+    const normalizedEvaluations = this.mapAndNormalizeRows((data || []) as SupabaseEvaluationRow[]);
+
+    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(normalizedEvaluations));
+    return normalizedEvaluations;
+  }
+
+  // Maps rows exactly as the shared evaluation list does, including its ordering.
+  private static mapAndNormalizeRows(rows: SupabaseEvaluationRow[]): Evaluation[] {
     const evaluations: Evaluation[] = [];
-    for (const row of (data || []) as SupabaseEvaluationRow[]) {
+    for (const row of rows) {
       const evaluation = this.mapSupabaseRowToEvaluation(row);
       if (!evaluation) continue;
       evaluations.push(evaluation);
@@ -440,7 +448,7 @@ export class StorageService {
     // Callers pick the first match per employee/period, so records parsed from real
     // details must win over legacy fallback records, with a deterministic tie-breaker.
     const hasQuestionSet = (evaluation: Evaluation) => (evaluation.snapshotConfig?.kpis?.length ?? 0) > 0 ? 1 : 0;
-    const normalizedEvaluations = evaluations
+    return evaluations
       .filter((evaluation) => evaluation.departmentId !== MANAGERIAL_DEPARTMENT_ID)
       .map(normalizeEvaluationDepartment)
       .map(normalizeEvaluationRole)
@@ -450,9 +458,48 @@ export class StorageService {
         new Date(left.updatedAt || left.createdAt).getTime() ||
         String(right.databaseId ?? '').localeCompare(String(left.databaseId ?? ''), undefined, { numeric: true })
       ));
+  }
 
-    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(normalizedEvaluations));
-    return normalizedEvaluations;
+  /** Loads one evaluation by primary key; null when it is missing or cannot be loaded. */
+  public static async getEvaluationFromSupabase(databaseId: string | number): Promise<Evaluation | null> {
+    try {
+      const { data, error } = await supabase
+        .from('evaluations')
+        .select('*')
+        .eq('id', databaseId)
+        .maybeSingle();
+      if (error || !data) return null;
+      return this.mapAndNormalizeRows([data as SupabaseEvaluationRow])[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Finds the evaluation the shared list would pick for an employee/period without
+   * downloading the whole table. Rows with a NULL period are included because the
+   * mapper derives their period from details or created_at. Throws on query errors.
+   */
+  public static async findEvaluationForPeriodFromSupabase(
+    employeeId: string,
+    quarter: Evaluation['quarter'],
+    year: number
+  ): Promise<Evaluation | null> {
+    const { data, error } = await supabase
+      .from('evaluations')
+      .select('*')
+      .eq('employee_id', employeeId)
+      .or(`and(quarter.eq.${quarter},evaluation_year.eq.${year}),quarter.is.null,evaluation_year.is.null`);
+
+    if (error) {
+      throw new Error(`Could not check Supabase for an existing evaluation: ${error.message}`);
+    }
+
+    return this.mapAndNormalizeRows((data || []) as SupabaseEvaluationRow[]).find((evaluation) =>
+      evaluation.employeeId === employeeId &&
+      evaluation.quarter === quarter &&
+      evaluation.year === year
+    ) ?? null;
   }
 
   public static async saveEvaluation(
