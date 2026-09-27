@@ -8,6 +8,7 @@ export const SetPasswordView: React.FC = () => {
   const {
     hasPasswordSetupSession,
     isPasswordSetupFlow,
+    passwordSetupError,
     finishPasswordSetup,
   } = useAuth();
   const [password, setPassword] = useState('');
@@ -87,7 +88,8 @@ export const SetPasswordView: React.FC = () => {
         </div>
         {(!isPasswordSetupFlow || !hasPasswordSetupSession) && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-            This setup link is invalid or has expired. Request a new invitation or password-reset link.
+            {passwordSetupError ||
+              'This setup link is invalid or has expired. Request a new invitation or password-reset link.'}
           </div>
         )}
         <input

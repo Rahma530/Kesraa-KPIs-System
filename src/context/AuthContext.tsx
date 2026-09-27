@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AuthChangeEvent, User } from '@supabase/supabase-js';
 import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
 import { StorageService } from '../services/storageService';
-import { supabase } from '../lib/supabase';
+import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
 import { isEvaluableEmployee } from '../utils/departmentNames';
 import {
   AuthorizationCapability,
@@ -18,6 +18,7 @@ export interface AuthContextType {
   isLoading: boolean;
   isPasswordSetupFlow: boolean;
   hasPasswordSetupSession: boolean;
+  passwordSetupError: string;
   authError: string;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -70,20 +71,6 @@ class EmployeeProfileError extends Error {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const isPasswordSetupRedirect = (): boolean => {
-  if (typeof window === 'undefined') return false;
-
-  const searchParams = new URLSearchParams(window.location.search);
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  const authType = hashParams.get('type') || searchParams.get('type');
-  const isSetupType = authType === 'invite' || authType === 'recovery';
-  const hasAuthTokens = hashParams.has('access_token') && hashParams.has('refresh_token');
-  const hasAuthCode = searchParams.has('code');
-  const isSetupPath = window.location.pathname === '/auth/setup-password';
-
-  return isSetupType || isSetupPath || (isSetupPath && (hasAuthTokens || hasAuthCode));
-};
 
 const getAdditionalPermissions = (user: User): AdditionalSystemPermission[] => {
   const metadataPermissions = user.app_metadata?.additional_permissions;
@@ -164,15 +151,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [allUsers, setAllUsers] = useState<Employee[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isPasswordSetupFlow, setIsPasswordSetupFlow] = useState(isPasswordSetupRedirect);
+  const [isPasswordSetupFlow, setIsPasswordSetupFlow] = useState(
+    initialPasswordSetupCallback.isDetected
+  );
   const [hasPasswordSetupSession, setHasPasswordSetupSession] = useState(false);
+  const [passwordSetupError, setPasswordSetupError] = useState(
+    initialPasswordSetupCallback.error
+  );
   const [authError, setAuthError] = useState('');
   const passwordSetupFlowRef = useRef(isPasswordSetupFlow);
 
   const updatePasswordSetupFlow = (active: boolean) => {
     passwordSetupFlowRef.current = active;
     setIsPasswordSetupFlow(active);
-    if (!active) setHasPasswordSetupSession(false);
+    if (!active) {
+      setHasPasswordSetupSession(false);
+      setPasswordSetupError('');
+    }
   };
 
   const clearAuthenticatedProfile = () => {
@@ -201,8 +196,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleAuthSession = async (event: AuthChangeEvent, session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) => {
       const isSetupEvent = event === 'PASSWORD_RECOVERY' || passwordSetupFlowRef.current;
       if (isSetupEvent) {
+        const callbackFailed = Boolean(initialPasswordSetupCallback.error);
         updatePasswordSetupFlow(true);
-        setHasPasswordSetupSession(Boolean(session));
+        setHasPasswordSetupSession(Boolean(session) && !callbackFailed);
+        if (session && !callbackFailed) setPasswordSetupError('');
         clearAuthenticatedProfile();
         if (mounted) setIsLoading(false);
         return;
@@ -233,9 +230,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     const restoreSession = async () => {
+      const { error: initializationError } = await supabase.auth.initialize();
+      if (initializationError) {
+        if (mounted && passwordSetupFlowRef.current) {
+          setPasswordSetupError(
+            initialPasswordSetupCallback.error ||
+              `Could not process this authentication link: ${initializationError.message}`
+          );
+          setHasPasswordSetupSession(false);
+          clearAuthenticatedProfile();
+        } else if (mounted) {
+          setAuthError(`Could not initialize authentication: ${initializationError.message}`);
+        }
+        return;
+      }
+
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        if (mounted) setAuthError(`Could not restore your session: ${error.message}`);
+        if (mounted && passwordSetupFlowRef.current) {
+          setPasswordSetupError(`Could not process this authentication link: ${error.message}`);
+        } else if (mounted) {
+          setAuthError(`Could not restore your session: ${error.message}`);
+        }
         clearAuthenticatedProfile();
         if (passwordSetupFlowRef.current) setHasPasswordSetupSession(false);
         return;
@@ -346,6 +362,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isPasswordSetupFlow,
         hasPasswordSetupSession,
+        passwordSetupError,
         authError,
         login,
         logout,
