@@ -17,6 +17,7 @@ import { useData } from '../context/DataContext';
 import { ARABIC_LEVELS, ARABIC_STATUSES } from '../locales/ar';
 import { Employee, EmployeeLevel } from '../types';
 import { getRoleOptions, getStandardRole } from '../utils/departmentNames';
+import { canEditEvaluation } from './EvaluationFormModal';
 
 interface HeadTechnicalDashboardProps {
   onStartEvaluation: (employeeId: string) => void;
@@ -293,7 +294,7 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
                                     onClick={() => onViewEvaluation(ev)}
                                     className="shrink-0 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
                                   >
-                                    View
+                                    {canEditEvaluation(currentUser, ev) ? 'Edit' : 'View'}
                                   </button>
                                 </>
                               ) : (
@@ -364,7 +365,7 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
                                     onClick={() => onViewEvaluation(ev)}
                                     className="shrink-0 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
                                   >
-                                    View
+                                    {canEditEvaluation(currentUser, ev) ? 'Edit' : 'View'}
                                   </button>
                                 </>
                               ) : (

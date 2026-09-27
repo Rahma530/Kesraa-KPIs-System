@@ -5,6 +5,7 @@ import { useData } from '../context/DataContext';
 import { ARABIC_LEVELS, ARABIC_STATUSES } from '../locales/ar';
 import { Employee, EmployeeLevel, Evaluation } from '../types';
 import { getRoleOptions, getStandardRole } from '../utils/departmentNames';
+import { canEditEvaluation } from './EvaluationFormModal';
 
 interface TeamLeaderDashboardProps {
   onStartEvaluation: (employeeId: string) => void;
@@ -183,7 +184,9 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
                       onClick={() => currentEval ? onViewEvaluation(currentEval) : onStartEvaluation(emp.id)}
                       className="shrink-0 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-white transition-colors flex items-center gap-1"
                     >
-                      {currentEval ? 'View Evaluation' : 'Evaluate Now'}
+                      {currentEval
+                        ? canEditEvaluation(currentUser, currentEval) ? 'Edit Evaluation' : 'View Evaluation'
+                        : 'Evaluate Now'}
                       <ChevronLeft className="h-3 w-3" />
                     </button>
                   </div>
