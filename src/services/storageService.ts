@@ -437,13 +437,18 @@ export class StorageService {
       evaluations.push(evaluation);
     }
 
+    // Callers pick the first match per employee/period, so records parsed from real
+    // details must win over legacy fallback records, with a deterministic tie-breaker.
+    const hasQuestionSet = (evaluation: Evaluation) => (evaluation.snapshotConfig?.kpis?.length ?? 0) > 0 ? 1 : 0;
     const normalizedEvaluations = evaluations
       .filter((evaluation) => evaluation.departmentId !== MANAGERIAL_DEPARTMENT_ID)
       .map(normalizeEvaluationDepartment)
       .map(normalizeEvaluationRole)
       .sort((left, right) => (
+        hasQuestionSet(right) - hasQuestionSet(left) ||
         new Date(right.updatedAt || right.createdAt).getTime() -
-        new Date(left.updatedAt || left.createdAt).getTime()
+        new Date(left.updatedAt || left.createdAt).getTime() ||
+        String(right.databaseId ?? '').localeCompare(String(left.databaseId ?? ''), undefined, { numeric: true })
       ));
 
     localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(normalizedEvaluations));

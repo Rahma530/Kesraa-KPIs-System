@@ -104,7 +104,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
 
   // Active or Snapshot KPIs
   const activeKpis: KPIDefinition[] = React.useMemo(() => {
-    if (evaluation?.snapshotConfig?.kpis) {
+    if (evaluation?.snapshotConfig?.kpis?.length) {
       return evaluation.snapshotConfig.kpis;
     }
     const common = settings.commonKPIs.filter((k) => k.isActive);
@@ -134,21 +134,23 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   // Initialize scores
   useEffect(() => {
     const initial: Record<string, { score: number; notes: string }> = {};
-    if (evaluation?.scores && evaluation.scores.length > 0) {
-      evaluation.scores.forEach((s) => {
-        initial[s.kpiId] = { score: s.score, notes: s.notes || '' };
-      });
-    } else {
-      activeKpis.forEach((k) => {
+    const savedScores = new Map<string, EvaluationScoreItem>(
+      (evaluation?.scores || []).map((s) => [s.kpiId, s])
+    );
+    activeKpis.forEach((k) => {
+      const saved = savedScores.get(k.id);
+      if (saved) {
+        initial[k.id] = { score: saved.score, notes: saved.notes || '' };
+      } else if (!isLocked) {
         initial[k.id] = { score: 8, notes: '' }; // Default whole score 8
-      });
-    }
+      }
+    });
     setScoresState(initial);
-  }, [evaluation, activeKpis]);
+  }, [evaluation, activeKpis, isLocked]);
 
   // Live score calculation
   const calculated = React.useMemo(() => {
-    if (evaluation && evaluation.scores.length === 0) {
+    if (isLocked && evaluation && evaluation.scores.length === 0) {
       return {
         commonScore: evaluation.commonScore,
         departmentScore: evaluation.departmentScore,
@@ -172,7 +174,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       targetEmployee.isHeadTechnical || false,
       settings.classifications
     );
-  }, [scoresState, activeKpis, targetEmployee, settings.classifications, evaluation]);
+  }, [scoresState, activeKpis, targetEmployee, settings.classifications, evaluation, isLocked]);
 
   const handleScoreChange = (kpiId: string, newScore: number) => {
     if (isLocked) return;
@@ -230,7 +232,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       aiRecommendations,
       locked: newStatus === 'APPROVED',
       scores: calculated.itemScores,
-      snapshotConfig: evaluation?.snapshotConfig || {
+      snapshotConfig: evaluation?.snapshotConfig?.kpis?.length ? evaluation.snapshotConfig : {
         version: settings.activeVersion,
         minEmploymentMonths: settings.minEmploymentMonths,
         commonSkillsPercent: settings.commonSkillsPercent,
@@ -263,6 +265,12 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     setIsSaving(true);
     try {
       const payload = buildEvaluationPayload(newStatus);
+      if (!payload.snapshotConfig?.kpis?.length || !payload.scores?.length) {
+        setSaveError(
+          'The evaluation was not saved: it has no evaluation questions or scores. Close the form, reopen the evaluation, and try again.'
+        );
+        return;
+      }
       const saved = await saveEvaluation(payload);
       onSaved(saved);
     } catch (error) {
