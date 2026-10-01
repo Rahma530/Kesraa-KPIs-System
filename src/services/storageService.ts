@@ -4,7 +4,8 @@ import {
   Evaluation,
   SystemSettings,
   AuditLog,
-  EvaluationStatus
+  EvaluationStatus,
+  KPIDefinition
 } from '../types';
 import {
   INITIAL_DEPARTMENTS,
@@ -31,6 +32,26 @@ const STORAGE_KEYS = {
   EVALUATIONS: 'pes_evaluations_v7',
   INITIALIZED: 'pes_initialized_v7',
 };
+
+const SETTINGS_ROW_ID = 'sys-settings';
+
+interface SupabaseSettingsRow {
+  id: string;
+  active_version?: string | null;
+  common_skills_percent?: number | string | null;
+  dept_kpi_percent?: number | string | null;
+  tl_leadership_percent?: number | string | null;
+  head_tech_management_percent?: number | string | null;
+  min_employment_months?: number | string | null;
+  common_kpis?: unknown;
+  department_kpis?: unknown;
+  leadership_kpis?: unknown;
+  head_tech_management_kpis?: unknown;
+  classifications?: unknown;
+  level_expectations?: unknown;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
 
 interface SupabaseEvaluationRow {
   id: string | number;
@@ -80,7 +101,6 @@ export class StorageService {
     if (!isInit) {
       localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(INITIAL_DEPARTMENTS));
       localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(INITIAL_EMPLOYEES));
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(INITIAL_SYSTEM_SETTINGS));
       localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(INITIAL_EVALUATIONS));
       localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
 
@@ -193,57 +213,140 @@ export class StorageService {
   }
 
   // --- SETTINGS ---
+  // public.settings (row 'sys-settings') is the source of truth. localStorage only keeps a
+  // read-only cache of the last copy loaded from the database.
   public static getSettings(): SystemSettings {
+    return this.getCachedSettings().settings;
+  }
+
+  public static getCachedSettings(): { settings: SystemSettings; source: 'cache' | 'defaults' } {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return data ? this.migrateSeoWebDeveloperKpis(JSON.parse(data)) : INITIAL_SYSTEM_SETTINGS;
+      if (data) return { settings: JSON.parse(data), source: 'cache' };
     } catch {
-      return INITIAL_SYSTEM_SETTINGS;
+      // Fall through to the built-in defaults.
     }
+    return { settings: INITIAL_SYSTEM_SETTINGS, source: 'defaults' };
   }
 
-  // One-time, per-browser migration: append the SEO Web Developer KPIs to stored settings
-  // that predate them. The marker keeps a KPI an admin later deletes from being re-added.
-  private static migrateSeoWebDeveloperKpis(settings: SystemSettings): SystemSettings {
-    const markerKey = 'pes_migration_seo_webdev_kpis_v1';
-    if (localStorage.getItem(markerKey)) return settings;
+  private static mapSettingsRow(row: SupabaseSettingsRow): SystemSettings | null {
+    const kpiLists = [row.common_kpis, row.department_kpis, row.leadership_kpis, row.head_tech_management_kpis];
+    if (!kpiLists.every(Array.isArray)) return null;
 
-    const storedIds = new Set((settings.departmentKPIs || []).map((k) => k.id));
-    const missing = INITIAL_SYSTEM_SETTINGS.departmentKPIs.filter(
-      (k) => k.id.startsWith('kpi-seo-webdev-') && !storedIds.has(k.id)
-    );
-    const migrated = missing.length > 0
-      ? { ...settings, departmentKPIs: [...(settings.departmentKPIs || []), ...missing] }
-      : settings;
-
-    if (missing.length > 0) {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(migrated));
-    }
-    localStorage.setItem(markerKey, new Date().toISOString());
-    return migrated;
-  }
-
-  public static saveSettings(settings: SystemSettings, actorId: string, actorName: string, actorRole: any): void {
-    const prev = this.getSettings();
-    const updated = {
-      ...settings,
-      updatedAt: new Date().toISOString(),
-      updatedBy: `${actorName} (${actorRole})`,
+    const settings: SystemSettings = {
+      ...INITIAL_SYSTEM_SETTINGS,
+      id: row.id,
+      activeVersion: row.active_version || INITIAL_SYSTEM_SETTINGS.activeVersion,
+      minEmploymentMonths: Number(row.min_employment_months),
+      commonSkillsPercent: Number(row.common_skills_percent),
+      deptKpiPercent: Number(row.dept_kpi_percent),
+      tlLeadershipPercent: Number(row.tl_leadership_percent),
+      headTechManagementPercent: Number(row.head_tech_management_percent),
+      commonKPIs: row.common_kpis as KPIDefinition[],
+      departmentKPIs: row.department_kpis as KPIDefinition[],
+      leadershipKPIs: row.leadership_kpis as KPIDefinition[],
+      headTechManagementKPIs: row.head_tech_management_kpis as KPIDefinition[],
+      classifications: Array.isArray(row.classifications) && row.classifications.length > 0
+        ? row.classifications as SystemSettings['classifications']
+        : INITIAL_SYSTEM_SETTINGS.classifications,
+      levelExpectations: row.level_expectations && typeof row.level_expectations === 'object'
+        ? row.level_expectations as SystemSettings['levelExpectations']
+        : INITIAL_SYSTEM_SETTINGS.levelExpectations,
+      // Kept exactly as returned: it is the optimistic-lock token for saves.
+      updatedAt: row.updated_at ?? '',
+      updatedBy: row.updated_by || '',
     };
 
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+    const numbers = [
+      settings.minEmploymentMonths, settings.commonSkillsPercent, settings.deptKpiPercent,
+      settings.tlLeadershipPercent, settings.headTechManagementPercent,
+    ];
+    if (!numbers.every(Number.isFinite)) return null;
+    if (!CalculationEngine.validateWeights(settings).isValid) return null;
+    return settings;
+  }
+
+  /** Loads the shared settings row; null when it is missing, unreadable or not usable. */
+  public static async fetchSettingsFromSupabase(): Promise<SystemSettings | null> {
+    try {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', SETTINGS_ROW_ID)
+        .maybeSingle();
+      if (error || !data) {
+        console.warn('Could not load settings from Supabase:', error?.message || 'row not found');
+        return null;
+      }
+      const settings = this.mapSettingsRow(data as SupabaseSettingsRow);
+      if (!settings) {
+        console.warn('The Supabase settings row is not usable (missing KPI lists or invalid weights).');
+        return null;
+      }
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+      return settings;
+    } catch (error) {
+      console.warn('Could not load settings from Supabase:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Saves settings to the shared row, guarded by the updated_at of the copy the admin edited.
+   * Returns 'conflict' when someone else saved first. Throws on any other failure.
+   */
+  public static async saveSettingsToSupabase(
+    settings: SystemSettings,
+    actor: { id: string; name: string; email: string; role: any }
+  ): Promise<{ status: 'saved'; settings: SystemSettings } | { status: 'conflict' }> {
+    const prev = this.getSettings();
+    let query = supabase
+      .from('settings')
+      .update({
+        active_version: settings.activeVersion,
+        min_employment_months: settings.minEmploymentMonths,
+        common_skills_percent: settings.commonSkillsPercent,
+        dept_kpi_percent: settings.deptKpiPercent,
+        tl_leadership_percent: settings.tlLeadershipPercent,
+        head_tech_management_percent: settings.headTechManagementPercent,
+        common_kpis: settings.commonKPIs,
+        department_kpis: settings.departmentKPIs,
+        leadership_kpis: settings.leadershipKPIs,
+        head_tech_management_kpis: settings.headTechManagementKPIs,
+        classifications: settings.classifications,
+        level_expectations: settings.levelExpectations,
+        updated_by: `${actor.name} <${actor.email}>`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', SETTINGS_ROW_ID);
+    query = settings.updatedAt ? query.eq('updated_at', settings.updatedAt) : query.is('updated_at', null);
+
+    const { data, error } = await query.select('*');
+    if (error) {
+      throw new Error(`Could not save settings to Supabase: ${error.message}`);
+    }
+    if (!data || data.length === 0) {
+      return { status: 'conflict' };
+    }
+
+    const saved = this.mapSettingsRow(data[0] as SupabaseSettingsRow);
+    if (!saved) {
+      throw new Error('Supabase saved the settings but returned a row that is not usable.');
+    }
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(saved));
 
     AuditService.logAction(
-      actorId,
-      actorName,
-      actorRole,
+      actor.id,
+      actor.name,
+      actor.role,
       'SETTINGS_UPDATED',
       'SETTINGS',
-      settings.id,
-      `Modified system KPI configuration version: ${settings.activeVersion}`,
+      saved.id,
+      `Modified system KPI configuration version: ${saved.activeVersion}`,
       JSON.stringify(prev),
-      JSON.stringify(updated)
+      JSON.stringify(saved)
     );
+    return { status: 'saved', settings: saved };
   }
 
   // --- EVALUATIONS ---
@@ -683,7 +786,6 @@ export class StorageService {
         STORAGE_KEYS.EMPLOYEES,
         JSON.stringify(removeLegacyEmployeePasswords(data.employees))
       );
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));
       localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(data.evaluations));
 
       AuditService.logAction(

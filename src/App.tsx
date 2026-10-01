@@ -40,6 +40,7 @@ const AppLayout: React.FC = () => {
     setSelectedQuarter,
     setSelectedYear,
     refreshData,
+    settingsSource,
   } = useData();
 
   if (!isAuthenticated) {
@@ -128,6 +129,11 @@ const AppLayout: React.FC = () => {
           setSelectedEvaluation(existingEvaluation);
           setSelectedEmployeeForEval(null);
         } else {
+          // A new evaluation snapshots the current KPI settings, so they must be the shared copy.
+          if (settingsSource !== 'database') {
+            window.alert('New evaluations cannot be started until the shared KPI settings have loaded from the database. Please wait a moment or refresh the page, then try again.');
+            return;
+          }
           setSelectedEmployeeForEval(emp);
           setSelectedEvaluation(null);
         }

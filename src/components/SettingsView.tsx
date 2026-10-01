@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Save,
   Plus,
@@ -23,18 +23,26 @@ import {
 import { CalculationEngine } from '../services/calculationEngine';
 
 export const SettingsView: React.FC = () => {
-  const { settings, saveSettings, departments } = useData();
+  const { settings, settingsSource, saveSettings, departments } = useData();
   const { canManageSettings, currentUser } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'formula' | 'common' | 'dept' | 'leadership' | 'classifications' | 'levels'>('formula');
   const [selectedDeptId, setSelectedDeptId] = useState<string>(departments[0]?.id || 'dept-am');
   const [localSettings, setLocalSettings] = useState<SystemSettings>({ ...settings });
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const canSaveToDatabase = settingsSource === 'database';
+
+  // Start from the latest shared copy whenever it is (re)loaded from the database.
+  useEffect(() => {
+    setLocalSettings({ ...settings });
+  }, [settings]);
 
   // Validate weights live
   const validation = CalculationEngine.validateWeights(localSettings);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!canManageSettings()) {
       alert('You do not have permission to modify KPI settings.');
       return;
@@ -45,9 +53,23 @@ export const SettingsView: React.FC = () => {
       return;
     }
 
-    saveSettings(localSettings);
-    setSaveSuccessMsg('Settings were updated successfully.');
-    setTimeout(() => setSaveSuccessMsg(null), 4000);
+    if (!canSaveToDatabase || isSaving) return;
+
+    setSaveErrorMsg(null);
+    setIsSaving(true);
+    try {
+      const result = await saveSettings(localSettings);
+      if (result.status === 'conflict') {
+        setSaveErrorMsg('The settings were changed by someone else. The latest version has been loaded; please review it and make your changes again.');
+        return;
+      }
+      setSaveSuccessMsg('Settings were updated successfully.');
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (error) {
+      setSaveErrorMsg(error instanceof Error ? error.message : 'The settings could not be saved. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleUpdateKPI = (id: string, updates: Partial<KPIDefinition>) => {
@@ -135,13 +157,26 @@ export const SettingsView: React.FC = () => {
           <button
             id="btn-save-settings"
             onClick={handleSave}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 transition-all "
+            disabled={!canSaveToDatabase || isSaving}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 transition-all disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
-            Save Settings
+            {isSaving ? 'Saving...' : 'Save Settings'}
           </button>
         </div>
       </div>
+
+      {!canSaveToDatabase && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-medium text-amber-200" role="status">
+          {settingsSource === 'cache' ? 'Showing the last saved copy of the settings' : 'Showing the default settings'} because the shared settings have not loaded from the database yet. Saving is disabled until they load; refresh the page to try again.
+        </div>
+      )}
+
+      {saveErrorMsg && (
+        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs font-medium text-rose-200" role="alert">
+          {saveErrorMsg}
+        </div>
+      )}
 
       {/* Live Formula Weight Sum Status Banner */}
       <div
