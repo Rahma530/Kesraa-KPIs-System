@@ -55,6 +55,18 @@ export const isDirectHeadEvaluation = (evaluatee: Employee, employees: Employee[
     employee.isActive !== false
   );
 
+// Department KPIs for an evaluatee: KPIs targeted at their role (roleName) replace the
+// department's general KPIs; otherwise only the KPIs without a roleName apply.
+export const selectDepartmentKpis = (
+  departmentKpis: KPIDefinition[],
+  evaluatee: Pick<Employee, 'departmentId' | 'role'>
+): KPIDefinition[] => {
+  const role = (evaluatee.role || '').trim().toLowerCase();
+  const active = departmentKpis.filter((k) => k.departmentId === evaluatee.departmentId && k.isActive);
+  const roleKpis = active.filter((k) => k.roleName && k.roleName.trim().toLowerCase() === role);
+  return roleKpis.length > 0 ? roleKpis : active.filter((k) => !k.roleName);
+};
+
 interface EvaluationFormModalProps {
   evaluation?: Evaluation | null;
   employee?: Employee | null;
@@ -132,9 +144,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       return evaluation.snapshotConfig.kpis;
     }
     const common = settings.commonKPIs.filter((k) => k.isActive);
-    const dept = settings.departmentKPIs.filter(
-      (k) => k.departmentId === targetEmployee?.departmentId && k.isActive
-    );
+    const dept = selectDepartmentKpis(settings.departmentKPIs, targetEmployee);
     const leadership = isTeamLeader ? settings.leadershipKPIs.filter((k) => k.isActive) : [];
     const headTechMgmt = isHeadTech ? settings.headTechManagementKPIs.filter((k) => k.isActive) : [];
     return [...common, ...dept, ...leadership, ...headTechMgmt];

@@ -196,10 +196,31 @@ export class StorageService {
   public static getSettings(): SystemSettings {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return data ? JSON.parse(data) : INITIAL_SYSTEM_SETTINGS;
+      return data ? this.migrateSeoWebDeveloperKpis(JSON.parse(data)) : INITIAL_SYSTEM_SETTINGS;
     } catch {
       return INITIAL_SYSTEM_SETTINGS;
     }
+  }
+
+  // One-time, per-browser migration: append the SEO Web Developer KPIs to stored settings
+  // that predate them. The marker keeps a KPI an admin later deletes from being re-added.
+  private static migrateSeoWebDeveloperKpis(settings: SystemSettings): SystemSettings {
+    const markerKey = 'pes_migration_seo_webdev_kpis_v1';
+    if (localStorage.getItem(markerKey)) return settings;
+
+    const storedIds = new Set((settings.departmentKPIs || []).map((k) => k.id));
+    const missing = INITIAL_SYSTEM_SETTINGS.departmentKPIs.filter(
+      (k) => k.id.startsWith('kpi-seo-webdev-') && !storedIds.has(k.id)
+    );
+    const migrated = missing.length > 0
+      ? { ...settings, departmentKPIs: [...(settings.departmentKPIs || []), ...missing] }
+      : settings;
+
+    if (missing.length > 0) {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(migrated));
+    }
+    localStorage.setItem(markerKey, new Date().toISOString());
+    return migrated;
   }
 
   public static saveSettings(settings: SystemSettings, actorId: string, actorName: string, actorRole: any): void {

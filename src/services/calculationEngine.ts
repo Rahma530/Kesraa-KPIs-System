@@ -43,21 +43,25 @@ export class CalculationEngine {
       );
     }
 
-    // 2. Department KPIs must sum to settings.deptKpiPercent (60%) per active department
+    // 2. Department KPIs must sum to settings.deptKpiPercent (60%) per department and role
+    // group: KPIs without a roleName form one group, and each roleName forms its own group.
     const deptSums: Record<string, number> = {};
-    const departmentIds = Array.from(
-      new Set(settings.departmentKPIs.map((k) => k.departmentId || 'generic'))
-    );
+    const groups = new Map<string, { dId: string; roleName: string }>();
+    for (const k of settings.departmentKPIs) {
+      const dId = k.departmentId || 'generic';
+      const roleName = k.roleName?.trim() || '';
+      groups.set(roleName ? `${dId} / ${roleName}` : dId, { dId, roleName });
+    }
 
-    for (const dId of departmentIds) {
+    for (const [groupKey, { dId, roleName }] of groups) {
       const sum = settings.departmentKPIs
-        .filter((k) => k.departmentId === dId && k.isActive)
+        .filter((k) => (k.departmentId || 'generic') === dId && (k.roleName?.trim() || '') === roleName && k.isActive)
         .reduce((s, k) => s + k.weight, 0);
-      deptSums[dId] = sum;
+      deptSums[groupKey] = sum;
 
       if (Math.abs(sum - settings.deptKpiPercent) > 0.01 && dId !== 'generic') {
         errors.push(
-          `Department (${dId}) KPI weights sum to ${sum}%, but must equal exactly ${settings.deptKpiPercent}%.`
+          `Department (${groupKey}) KPI weights sum to ${sum}%, but must equal exactly ${settings.deptKpiPercent}%.`
         );
       }
     }
