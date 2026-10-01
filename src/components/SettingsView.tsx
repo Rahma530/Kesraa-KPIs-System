@@ -535,13 +535,18 @@ export const SettingsView: React.FC = () => {
                   className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex-1">
+                    <div className="flex-1 flex items-center gap-2">
                       <input
                         type="text"
                         value={kpi.name}
                         onChange={(e) => handleUpdateKPI(kpi.id, { name: e.target.value })}
                         className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-bold text-white focus:border-emerald-500/60 focus:outline-none"
                       />
+                      {kpi.roleName && (
+                        <span className="shrink-0 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-bold text-cyan-300">
+                          {kpi.roleName}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3 shrink-0">
