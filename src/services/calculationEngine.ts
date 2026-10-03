@@ -54,12 +54,16 @@ export class CalculationEngine {
     }
 
     for (const [groupKey, { dId, roleName }] of groups) {
-      const sum = settings.departmentKPIs
-        .filter((k) => (k.departmentId || 'generic') === dId && (k.roleName?.trim() || '') === roleName && k.isActive)
-        .reduce((s, k) => s + k.weight, 0);
+      const activeKpis = settings.departmentKPIs.filter(
+        (k) => (k.departmentId || 'generic') === dId && (k.roleName?.trim() || '') === roleName && k.isActive
+      );
+      const sum = activeKpis.reduce((s, k) => s + k.weight, 0);
       deptSums[groupKey] = sum;
 
-      if (Math.abs(sum - settings.deptKpiPercent) > 0.01 && dId !== 'generic') {
+      // A role group with no active KPIs is switched off (employees fall back to the department
+      // default KPIs), so it is not validated. The default group and active role groups are.
+      const isDisabledRoleGroup = roleName !== '' && activeKpis.length === 0;
+      if (!isDisabledRoleGroup && Math.abs(sum - settings.deptKpiPercent) > 0.01 && dId !== 'generic') {
         errors.push(
           `Department (${groupKey}) KPI weights sum to ${sum}%, but must equal exactly ${settings.deptKpiPercent}%.`
         );

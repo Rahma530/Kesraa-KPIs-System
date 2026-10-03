@@ -18,9 +18,49 @@ import {
   SystemSettings,
   KPIDefinition,
   PerformanceClassificationConfig,
-  EvaluationQuarter
+  EvaluationQuarter,
+  ScoringRubric
 } from '../types';
 import { CalculationEngine } from '../services/calculationEngine';
+import { getRoleOptions } from '../utils/departmentNames';
+
+const SCORING_BANDS: Array<{ key: keyof ScoringRubric; range: string; label: string }> = [
+  { key: 'excellent', range: '9-10', label: 'Excellent' },
+  { key: 'good', range: '7-8', label: 'Good' },
+  { key: 'needsImprovement', range: '5-6', label: 'Needs improvement' },
+  { key: 'poor', range: '3-4', label: 'Poor' },
+  { key: 'critical', range: '1-2', label: 'Critical' },
+];
+const SCORING_BAND_PREFIX = /^\s*\d+\s*-\s*\d+\s*:\s*/;
+
+// Collapsible editor for a KPI's five scoring bands. The "9-10: " style prefix is fixed by the
+// band, so only the text after it is editable and the stored format is always preserved.
+const ScoringGuideEditor: React.FC<{
+  kpi: KPIDefinition;
+  onChange: (id: string, updates: Partial<KPIDefinition>) => void;
+}> = ({ kpi, onChange }) => (
+  <details className="rounded-lg border border-white/10 bg-white/[0.02]">
+    <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 hover:text-slate-200">
+      Scoring guide (1-10)
+    </summary>
+    <div className="space-y-2 p-2.5">
+      {SCORING_BANDS.map(({ key, range, label }) => (
+        <label key={key} className="block">
+          <span className="text-[10px] font-bold text-slate-400">{label} ({range})</span>
+          <textarea
+            dir="auto"
+            rows={2}
+            value={(kpi.scoringGuide?.[key] ?? '').replace(SCORING_BAND_PREFIX, '')}
+            onChange={(e) =>
+              onChange(kpi.id, { scoringGuide: { ...kpi.scoringGuide, [key]: `${range}: ${e.target.value}` } })
+            }
+            className="mt-0.5 w-full rounded-lg border border-white/10 bg-white/5 p-2 text-xs text-slate-300 focus:outline-none"
+          />
+        </label>
+      ))}
+    </div>
+  </details>
+);
 
 export const SettingsView: React.FC = () => {
   const { settings, settingsSource, saveSettings, departments } = useData();
@@ -87,12 +127,13 @@ export const SettingsView: React.FC = () => {
     });
   };
 
-  const handleAddKPI = (category: KPIDefinition['category'], deptId?: string) => {
+  const handleAddKPI = (category: KPIDefinition['category'], deptId?: string, roleName?: string) => {
     const newKpi: KPIDefinition = {
       id: `kpi-custom-${Date.now()}`,
       name: 'New Custom KPI',
       category,
       departmentId: deptId,
+      ...(roleName ? { roleName } : {}),
       weight: 5,
       description: 'Define the detailed measurement criteria...',
       isActive: true,
@@ -127,6 +168,50 @@ export const SettingsView: React.FC = () => {
       leadershipKPIs: prev.leadershipKPIs.filter((k) => k.id !== id),
       headTechManagementKPIs: prev.headTechManagementKPIs.filter((k) => k.id !== id),
     }));
+  };
+
+  // Role-group actions apply to every department KPI with this department and roleName.
+  const inRoleGroup = (k: KPIDefinition, deptId: string, roleName: string) =>
+    k.departmentId === deptId && k.roleName?.trim() === roleName;
+
+  const handleSetRoleGroupActive = (deptId: string, roleName: string, isActive: boolean) => {
+    setLocalSettings((prev) => ({
+      ...prev,
+      departmentKPIs: prev.departmentKPIs.map((k) => (inRoleGroup(k, deptId, roleName) ? { ...k, isActive } : k)),
+    }));
+  };
+
+  const handleDeleteRoleGroup = (deptId: string, roleName: string, kpiCount: number) => {
+    const confirmed = window.confirm(
+      `Delete the "${roleName}" KPI group (${kpiCount} KPI${kpiCount === 1 ? '' : 's'})?\n\n` +
+      'The KPIs are removed from the settings when you press Save Settings. ' +
+      'Evaluations that are already saved keep their own copy of the KPIs and are not affected.'
+    );
+    if (!confirmed) return;
+    setLocalSettings((prev) => ({
+      ...prev,
+      departmentKPIs: prev.departmentKPIs.filter((k) => !inRoleGroup(k, deptId, roleName)),
+    }));
+  };
+
+  // Department KPIs of the selected department, grouped the way CalculationEngine.validateWeights
+  // groups them: the KPIs without a roleName first, then one group per roleName.
+  const deptKpis = localSettings.departmentKPIs.filter((k) => k.departmentId === selectedDeptId);
+  const deptRoleOptions = getRoleOptions(selectedDeptId);
+  const deptRoleNames: string[] = Array.from(
+    new Set<string>(deptKpis.map((k) => k.roleName?.trim() || '').filter(Boolean))
+  );
+  const deptGroups: Array<{ roleName: string; key: string; kpis: KPIDefinition[] }> = [
+    { roleName: '', key: selectedDeptId, kpis: deptKpis.filter((k) => !k.roleName?.trim()) },
+    ...deptRoleNames.map((roleName) => ({
+      roleName,
+      key: `${selectedDeptId} / ${roleName}`,
+      kpis: deptKpis.filter((k) => k.roleName?.trim() === roleName),
+    })),
+  ];
+  const roleChoicesFor = (kpi: KPIDefinition) => {
+    const current = kpi.roleName?.trim();
+    return current && !deptRoleOptions.includes(current) ? [...deptRoleOptions, current] : deptRoleOptions;
   };
 
   const handleUpdateClassification = (id: string, updates: Partial<PerformanceClassificationConfig>) => {
@@ -515,6 +600,7 @@ export const SettingsView: React.FC = () => {
                     className="w-full rounded-lg border border-white/10 bg-white/5 p-2 text-xs text-slate-300 focus:outline-none"
                   />
                 </div>
+                <ScoringGuideEditor kpi={kpi} onChange={handleUpdateKPI} />
               </div>
             ))}
           </div>
@@ -550,83 +636,163 @@ export const SettingsView: React.FC = () => {
                   </option>
                 ))}
               </select>
-
-              <button
-                onClick={() => handleAddKPI('DEPARTMENT', selectedDeptId)}
-                className="inline-flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add KPI
-              </button>
             </div>
           </div>
 
-          <div className="space-y-3">
-            {localSettings.departmentKPIs
-              .filter((k) => k.departmentId === selectedDeptId)
-              .map((kpi) => (
-                <div
-                  key={kpi.id}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex-1 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={kpi.name}
-                        onChange={(e) => handleUpdateKPI(kpi.id, { name: e.target.value })}
-                        className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-bold text-white focus:border-emerald-500/60 focus:outline-none"
-                      />
-                      {kpi.roleName && (
-                        <span className="shrink-0 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-bold text-cyan-300">
-                          {kpi.roleName}
+          <div className="space-y-6">
+            {deptGroups.map((group) => {
+              const groupSum = group.kpis.length > 0 ? validation.departmentSums[group.key] ?? 0 : null;
+              const groupOk = groupSum !== null && Math.abs(groupSum - localSettings.deptKpiPercent) <= 0.01;
+              // A role group whose KPIs are all inactive is switched off (it is not weight-validated).
+              const groupDisabled = group.roleName !== '' && group.kpis.length > 0 && group.kpis.every((k) => !k.isActive);
+
+              return (
+                <div key={group.key} className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-white">
+                          {group.roleName ? `Role: ${group.roleName}` : 'All roles (department default)'}
+                        </h4>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                            groupDisabled
+                              ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                              : groupSum === null
+                              ? 'border-slate-500/30 bg-slate-500/15 text-slate-300'
+                              : groupOk
+                              ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                              : 'border-rose-500/30 bg-rose-500/15 text-rose-300'
+                          }`}
+                        >
+                          {groupDisabled
+                            ? 'Disabled'
+                            : groupSum === null
+                            ? 'No KPIs yet'
+                            : `${groupOk ? '✓ ' : ''}${groupSum}% of ${localSettings.deptKpiPercent}%`}
                         </span>
-                      )}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        {groupDisabled
+                          ? `Disabled: employees whose job title is ${group.roleName} use the department default KPIs.`
+                          : group.roleName
+                          ? `Replaces the department default KPIs for employees whose job title is ${group.roleName}.`
+                          : 'Used for every employee in this department who has no role-specific group.'}
+                      </p>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-slate-400 font-medium">Weight:</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={60}
-                          value={kpi.weight}
-                          onChange={(e) => handleUpdateKPI(kpi.id, { weight: Number(e.target.value) })}
-                          className="w-16 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs font-bold text-emerald-400 text-center"
-                        />
-                        <span className="text-xs text-slate-400">%</span>
-                      </div>
-
-                      <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={kpi.isActive}
-                          onChange={(e) => handleUpdateKPI(kpi.id, { isActive: e.target.checked })}
-                          className="rounded accent-emerald-500"
-                        />
-                        Active
-                      </label>
-
+                    <div className="flex flex-wrap items-center gap-2">
+                      {group.roleName && group.kpis.length > 0 && (
+                        <>
+                          <button
+                            onClick={() => handleSetRoleGroupActive(selectedDeptId, group.roleName, groupDisabled)}
+                            className={`inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-semibold ${
+                              groupDisabled
+                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                : 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                            }`}
+                          >
+                            {groupDisabled ? 'Enable group' : 'Disable group'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRoleGroup(selectedDeptId, group.roleName, group.kpis.length)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete group
+                          </button>
+                        </>
+                      )}
                       <button
-                        onClick={() => handleDeleteKPI(kpi.id)}
-                        className="text-slate-400 hover:text-rose-400 p-1"
+                        onClick={() => handleAddKPI('DEPARTMENT', selectedDeptId, group.roleName)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Plus className="h-3.5 w-3.5" />
+                        Add KPI
                       </button>
                     </div>
                   </div>
 
-                  <div>
-                    <textarea
-                      rows={2}
-                      value={kpi.description}
-                      onChange={(e) => handleUpdateKPI(kpi.id, { description: e.target.value })}
-                      className="w-full rounded-lg border border-white/10 bg-white/5 p-2 text-xs text-slate-300 focus:outline-none"
-                    />
-                  </div>
+                  {group.kpis.map((kpi) => (
+                    <div
+                      key={kpi.id}
+                      className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            value={kpi.name}
+                            onChange={(e) => handleUpdateKPI(kpi.id, { name: e.target.value })}
+                            className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-bold text-white focus:border-emerald-500/60 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 shrink-0">
+                          <select
+                            value={kpi.roleName?.trim() || ''}
+                            onChange={(e) => handleUpdateKPI(kpi.id, { roleName: e.target.value || undefined })}
+                            aria-label="Applies to job title"
+                            className="max-w-[16rem] rounded-lg border border-white/10 bg-neutral-950 px-2 py-1 text-xs font-semibold text-white focus:outline-none"
+                          >
+                            <option value="">All roles (department default)</option>
+                            {roleChoicesFor(kpi).map((role) => (
+                              <option key={role} value={role}>{role}</option>
+                            ))}
+                          </select>
+
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-400 font-medium">Weight:</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={60}
+                              value={kpi.weight}
+                              onChange={(e) => handleUpdateKPI(kpi.id, { weight: Number(e.target.value) })}
+                              className="w-16 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs font-bold text-emerald-400 text-center"
+                            />
+                            <span className="text-xs text-slate-400">%</span>
+                          </div>
+
+                          <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={kpi.isActive}
+                              onChange={(e) => handleUpdateKPI(kpi.id, { isActive: e.target.checked })}
+                              className="rounded accent-emerald-500"
+                            />
+                            Active
+                          </label>
+
+                          <button
+                            onClick={() => handleDeleteKPI(kpi.id)}
+                            className="text-slate-400 hover:text-rose-400 p-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <textarea
+                          rows={2}
+                          value={kpi.description}
+                          onChange={(e) => handleUpdateKPI(kpi.id, { description: e.target.value })}
+                          className="w-full rounded-lg border border-white/10 bg-white/5 p-2 text-xs text-slate-300 focus:outline-none"
+                        />
+                      </div>
+                      <ScoringGuideEditor kpi={kpi} onChange={handleUpdateKPI} />
+                    </div>
+                  ))}
+
+                  {group.kpis.length === 0 && (
+                    <p className="rounded-2xl border border-dashed border-white/10 p-4 text-center text-xs text-slate-500">
+                      No KPIs in this group yet. Use Add KPI to create one.
+                    </p>
+                  )}
                 </div>
-              ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -713,6 +879,7 @@ export const SettingsView: React.FC = () => {
                     className="w-full rounded-lg border border-white/10 bg-white/5 p-2 text-xs text-slate-300 focus:outline-none"
                   />
                 </div>
+                <ScoringGuideEditor kpi={kpi} onChange={handleUpdateKPI} />
               </div>
             ))}
           </div>

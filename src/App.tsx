@@ -297,7 +297,14 @@ const AppRoutes: React.FC = () => {
           <Route path="dashboard" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
           <Route path="employees" element={<RouteWrapper component={EmployeesManagementView} />} />
-          <Route path="settings" element={<RouteWrapper component={SettingsView} />} />
+          <Route
+            path="settings"
+            element={(
+              <CapabilityRoute capability="MANAGE_SETTINGS">
+                <RouteWrapper component={SettingsView} />
+              </CapabilityRoute>
+            )}
+          />
           <Route path="audit" element={<RouteWrapper component={AuditLogsView} />} />
         </Route>
 
@@ -305,6 +312,14 @@ const AppRoutes: React.FC = () => {
         <Route path="/ceo">
           <Route path="dashboard" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
+          <Route
+            path="settings"
+            element={(
+              <CapabilityRoute capability="MANAGE_SETTINGS">
+                <RouteWrapper component={SettingsView} />
+              </CapabilityRoute>
+            )}
+          />
           <Route path="audit" element={<RouteWrapper component={AuditLogsView} />} />
         </Route>
 

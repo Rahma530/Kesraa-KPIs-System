@@ -183,6 +183,11 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     setScoresState(initial);
   }, [evaluation, activeKpis, isLocked]);
 
+  // A saved evaluation keeps the classification bands it was created with; new ones use current settings.
+  const classifications = evaluation?.snapshotConfig?.classifications?.length
+    ? evaluation.snapshotConfig.classifications
+    : settings.classifications;
+
   // Live score calculation
   const calculated = React.useMemo(() => {
     if (isLocked && evaluation && evaluation.scores.length === 0) {
@@ -207,9 +212,9 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       activeKpis,
       isTeamLeader ? 'Team Leader' : targetEmployee.level,
       targetEmployee.isHeadTechnical || false,
-      settings.classifications
+      classifications
     );
-  }, [scoresState, activeKpis, targetEmployee, settings.classifications, evaluation, isLocked]);
+  }, [scoresState, activeKpis, targetEmployee, classifications, evaluation, isLocked]);
 
   const handleScoreChange = (kpiId: string, newScore: number) => {
     if (isLocked) return;
@@ -1070,8 +1075,13 @@ Return valid JSON only, using this structure:
               • <span className="font-semibold">يحتاج تحسين:</span> {kpi.scoringGuide.needsImprovement}
             </div>
             <div className="text-rose-300">
-              • <span className="font-semibold">ضعيف / حرج:</span> {kpi.scoringGuide.poor}
+              • <span className="font-semibold">ضعيف:</span> {kpi.scoringGuide.poor}
             </div>
+            {kpi.scoringGuide.critical && (
+              <div className="text-red-400">
+                • <span className="font-semibold">حرج:</span> {kpi.scoringGuide.critical}
+              </div>
+            )}
           </div>
         )}
       </div>
