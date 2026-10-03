@@ -170,6 +170,30 @@ export const SettingsView: React.FC = () => {
     }));
   };
 
+  // Role-group actions apply to every department KPI with this department and roleName.
+  const inRoleGroup = (k: KPIDefinition, deptId: string, roleName: string) =>
+    k.departmentId === deptId && k.roleName?.trim() === roleName;
+
+  const handleSetRoleGroupActive = (deptId: string, roleName: string, isActive: boolean) => {
+    setLocalSettings((prev) => ({
+      ...prev,
+      departmentKPIs: prev.departmentKPIs.map((k) => (inRoleGroup(k, deptId, roleName) ? { ...k, isActive } : k)),
+    }));
+  };
+
+  const handleDeleteRoleGroup = (deptId: string, roleName: string, kpiCount: number) => {
+    const confirmed = window.confirm(
+      `Delete the "${roleName}" KPI group (${kpiCount} KPI${kpiCount === 1 ? '' : 's'})?\n\n` +
+      'The KPIs are removed from the settings when you press Save Settings. ' +
+      'Evaluations that are already saved keep their own copy of the KPIs and are not affected.'
+    );
+    if (!confirmed) return;
+    setLocalSettings((prev) => ({
+      ...prev,
+      departmentKPIs: prev.departmentKPIs.filter((k) => !inRoleGroup(k, deptId, roleName)),
+    }));
+  };
+
   // Department KPIs of the selected department, grouped the way CalculationEngine.validateWeights
   // groups them: the KPIs without a roleName first, then one group per roleName.
   const deptKpis = localSettings.departmentKPIs.filter((k) => k.departmentId === selectedDeptId);
@@ -619,6 +643,8 @@ export const SettingsView: React.FC = () => {
             {deptGroups.map((group) => {
               const groupSum = group.kpis.length > 0 ? validation.departmentSums[group.key] ?? 0 : null;
               const groupOk = groupSum !== null && Math.abs(groupSum - localSettings.deptKpiPercent) <= 0.01;
+              // A role group whose KPIs are all inactive is switched off (it is not weight-validated).
+              const groupDisabled = group.roleName !== '' && group.kpis.length > 0 && group.kpis.every((k) => !k.isActive);
 
               return (
                 <div key={group.key} className="space-y-3">
@@ -630,32 +656,61 @@ export const SettingsView: React.FC = () => {
                         </h4>
                         <span
                           className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                            groupSum === null
+                            groupDisabled
+                              ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                              : groupSum === null
                               ? 'border-slate-500/30 bg-slate-500/15 text-slate-300'
                               : groupOk
                               ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
                               : 'border-rose-500/30 bg-rose-500/15 text-rose-300'
                           }`}
                         >
-                          {groupSum === null
+                          {groupDisabled
+                            ? 'Disabled'
+                            : groupSum === null
                             ? 'No KPIs yet'
                             : `${groupOk ? '✓ ' : ''}${groupSum}% of ${localSettings.deptKpiPercent}%`}
                         </span>
                       </div>
                       <p className="mt-0.5 text-[11px] text-slate-400">
-                        {group.roleName
+                        {groupDisabled
+                          ? `Disabled: employees whose job title is ${group.roleName} use the department default KPIs.`
+                          : group.roleName
                           ? `Replaces the department default KPIs for employees whose job title is ${group.roleName}.`
                           : 'Used for every employee in this department who has no role-specific group.'}
                       </p>
                     </div>
 
-                    <button
-                      onClick={() => handleAddKPI('DEPARTMENT', selectedDeptId, group.roleName)}
-                      className="inline-flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add KPI
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {group.roleName && group.kpis.length > 0 && (
+                        <>
+                          <button
+                            onClick={() => handleSetRoleGroupActive(selectedDeptId, group.roleName, groupDisabled)}
+                            className={`inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-semibold ${
+                              groupDisabled
+                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                : 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                            }`}
+                          >
+                            {groupDisabled ? 'Enable group' : 'Disable group'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRoleGroup(selectedDeptId, group.roleName, group.kpis.length)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete group
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => handleAddKPI('DEPARTMENT', selectedDeptId, group.roleName)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Add KPI
+                      </button>
+                    </div>
                   </div>
 
                   {group.kpis.map((kpi) => (

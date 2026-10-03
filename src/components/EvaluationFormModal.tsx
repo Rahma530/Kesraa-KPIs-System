@@ -1075,8 +1075,13 @@ Return valid JSON only, using this structure:
               • <span className="font-semibold">يحتاج تحسين:</span> {kpi.scoringGuide.needsImprovement}
             </div>
             <div className="text-rose-300">
-              • <span className="font-semibold">ضعيف / حرج:</span> {kpi.scoringGuide.poor}
+              • <span className="font-semibold">ضعيف:</span> {kpi.scoringGuide.poor}
             </div>
+            {kpi.scoringGuide.critical && (
+              <div className="text-red-400">
+                • <span className="font-semibold">حرج:</span> {kpi.scoringGuide.critical}
+              </div>
+            )}
           </div>
         )}
       </div>
