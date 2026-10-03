@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Department,
   Employee,
@@ -12,10 +12,14 @@ import { AuditService } from '../services/auditService';
 import { useAuth } from './AuthContext';
 import { logActivity } from '../utils/auditLogger';
 
+export type SettingsSource = 'database' | 'cache' | 'defaults';
+export type SaveSettingsResult = { status: 'saved' } | { status: 'conflict' };
+
 export interface DataContextType {
   departments: Department[];
   employees: Employee[];
   settings: SystemSettings;
+  settingsSource: SettingsSource;
   evaluations: Evaluation[];
   auditLogs: AuditLog[];
   selectedQuarter: EvaluationQuarter | '';
@@ -23,7 +27,7 @@ export interface DataContextType {
   setSelectedQuarter: (q: EvaluationQuarter | '') => void;
   setSelectedYear: (y: number) => void;
   saveEvaluation: (evaluation: Evaluation) => Promise<Evaluation>;
-  saveSettings: (settings: SystemSettings) => void;
+  saveSettings: (settings: SystemSettings) => Promise<SaveSettingsResult>;
   saveEmployee: (emp: Employee) => void;
   deleteEmployee: (id: string) => void;
   saveDepartments: (depts: Department[]) => void;
@@ -40,7 +44,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [settings, setSettings] = useState<SystemSettings>(() => StorageService.getSettings());
+  const [initialSettings] = useState(() => StorageService.getCachedSettings());
+  const [settings, setSettings] = useState<SystemSettings>(initialSettings.settings);
+  const [settingsSource, setSettingsSource] = useState<SettingsSource>(initialSettings.source);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
@@ -50,8 +56,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshLocalData = () => {
     setDepartments(StorageService.getDepartments());
     setEmployees(StorageService.getEmployees());
-    const s = StorageService.getSettings();
-    setSettings(s);
     setAuditLogs(AuditService.getLogs());
   };
 
@@ -61,6 +65,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setEvaluations(remoteEvaluations);
     return remoteEvaluations;
   };
+
+  // Shared settings come from public.settings; keep the cached/default copy if that fails.
+  const loadSettings = useCallback(async () => {
+    const remoteSettings = await StorageService.fetchSettingsFromSupabase();
+    if (remoteSettings) {
+      setSettings(remoteSettings);
+      setSettingsSource('database');
+    }
+    return remoteSettings;
+  }, []);
+
+  useEffect(() => {
+    if (currentUser?.id) void loadSettings();
+  }, [currentUser?.id, loadSettings]);
 
   useEffect(() => {
     StorageService.initialize();
@@ -91,13 +109,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return saved;
   };
 
-  const saveSettings = (newSettings: SystemSettings) => {
+  const saveSettings = async (newSettings: SystemSettings): Promise<SaveSettingsResult> => {
     const actorId = currentUser?.id || 'system';
     const actorName = currentUser?.name || 'System User';
     const actorRole = currentUser?.systemRole || 'ADMIN';
 
-    StorageService.saveSettings(newSettings, actorId, actorName, actorRole);
-    
+    const result = await StorageService.saveSettingsToSupabase(newSettings, {
+      id: actorId,
+      name: actorName,
+      email: currentUser?.email || '',
+      role: actorRole,
+    });
+    if (result.status === 'conflict') {
+      await loadSettings();
+      return { status: 'conflict' };
+    }
+
+    setSettings(result.settings);
+    setSettingsSource('database');
     logActivity({
       userRole: actorRole,
       userEmail: currentUser?.email || actorName,
@@ -105,7 +134,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: `Updated system settings`
     });
 
+    await loadSettings();
     refreshLocalData();
+    return { status: 'saved' };
   };
 
   const saveEmployee = (emp: Employee) => {
@@ -181,6 +212,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         departments,
         employees,
         settings,
+        settingsSource,
         evaluations,
         auditLogs,
         selectedQuarter,
