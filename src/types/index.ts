@@ -169,6 +169,10 @@ export interface Evaluation {
   reviewedBy?: string;
   approvedAt?: string;
   approvedBy?: string;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  reopenedById?: string;
+  reopenedByRole?: SystemRole;
   publishedAt?: string;
   publishedBy?: string;
   viewedAt?: string;
