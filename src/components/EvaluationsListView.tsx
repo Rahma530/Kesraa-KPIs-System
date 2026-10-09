@@ -17,6 +17,7 @@ import { Evaluation, EvaluationStatus } from '../types';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { ARABIC_STATUSES, ARABIC_LEVELS, ARABIC_CLASSIFICATIONS } from '../locales/ar';
+import { canEditEvaluation } from './EvaluationFormModal';
 
 interface EvaluationsListViewProps {
   onSelectEvaluation: (evaluation: Evaluation) => void;
@@ -38,7 +39,7 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
     setSelectedQuarter,
     setSelectedYear,
   } = useData();
-  const { currentUser, canEvaluateEmployee, isExecutiveOrAdmin, isTechnicalReviewer } = useAuth();
+  const { currentUser, canEvaluateEmployee, isExecutiveOrAdmin } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
@@ -262,10 +263,7 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
               ) : (
                 paginatedEvaluations.map((evalItem) => {
                   const isLocked = evalItem.locked || evalItem.status === 'APPROVED';
-                  const canEdit = !isLocked && (
-                    isTechnicalReviewer() ||
-                    (currentUser?.systemRole === 'TEAM_LEADER' && evalItem.status === 'DRAFT')
-                  );
+                  const canEdit = canEditEvaluation(currentUser, evalItem);
                   const isSenior = evalItem.level === 'Senior';
                   const isTL = evalItem.level === 'Team Leader';
                   const isMid = evalItem.level === 'Mid';

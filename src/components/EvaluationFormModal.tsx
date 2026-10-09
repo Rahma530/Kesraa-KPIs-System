@@ -58,7 +58,6 @@ export const canReopenEvaluation = (
   Boolean(
     user?.isActive !== false &&
     evaluation?.status === 'APPROVED' &&
-    evaluation.locked &&
     (
       isTechnicalReviewerEmployee(user) ||
       (user?.systemRole === 'TEAM_LEADER' &&
