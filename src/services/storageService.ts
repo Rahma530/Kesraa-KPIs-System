@@ -153,65 +153,6 @@ export class StorageService {
     }
   }
 
-  public static saveEmployee(employee: Employee, actorId: string, actorName: string, actorRole: any): void {
-    const employees = this.getEmployees();
-    const safeEmployee = removeLegacyEmployeePasswords([employee])[0];
-    const index = employees.findIndex((e) => e.id === safeEmployee.id);
-    let prev: Employee | undefined;
-
-    if (index >= 0) {
-      prev = employees[index];
-      employees[index] = { ...safeEmployee, updatedAt: new Date().toISOString() };
-      AuditService.logAction(
-        actorId,
-        actorName,
-        actorRole,
-        'EMPLOYEE_UPDATED',
-        'EMPLOYEE',
-        safeEmployee.id,
-        `Updated profile for employee: ${safeEmployee.name}`,
-        JSON.stringify(prev),
-        JSON.stringify(employees[index])
-      );
-    } else {
-      employees.push({
-        ...safeEmployee,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      AuditService.logAction(
-        actorId,
-        actorName,
-        actorRole,
-        'EMPLOYEE_CREATED',
-        'EMPLOYEE',
-        safeEmployee.id,
-        `Created new employee record: ${safeEmployee.name} (${safeEmployee.role})`
-      );
-    }
-
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-  }
-
-  public static deleteEmployee(id: string, actorId: string, actorName: string, actorRole: any): void {
-    const employees = this.getEmployees();
-    const target = employees.find((e) => e.id === id);
-    if (!target) return;
-
-    const filtered = employees.filter((e) => e.id !== id);
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(filtered));
-
-    AuditService.logAction(
-      actorId,
-      actorName,
-      actorRole,
-      'EMPLOYEE_DELETED',
-      'EMPLOYEE',
-      id,
-      `Decommissioned employee: ${target.name}`
-    );
-  }
-
   // --- SETTINGS ---
   // public.settings (row 'sys-settings') is the source of truth. localStorage only keeps a
   // read-only cache of the last copy loaded from the database.
@@ -425,7 +366,6 @@ export class StorageService {
       return null;
     }
 
-    const employee = this.getEmployees().find((item) => item.id === row.employee_id);
     const createdDate = row.created_at ? new Date(row.created_at) : new Date(0);
     const hasValidCreatedDate = !Number.isNaN(createdDate.getTime());
     const quarterNumber = hasValidCreatedDate ? Math.floor(createdDate.getUTCMonth() / 3) + 1 : 1;
@@ -440,7 +380,7 @@ export class StorageService {
     const settings = INITIAL_SYSTEM_SETTINGS;
     const departmentId = partialDetails?.departmentId || (row.department?.startsWith('dept-')
       ? row.department
-      : employee?.departmentId || row.department || 'legacy-department');
+      : row.department || 'legacy-department');
     const department = this.getDepartments().find((item) => item.id === departmentId);
     const commonScore = row.communication_score ?? partialDetails?.commonScore ?? 0;
     const departmentScore = partialDetails?.departmentScore ?? 0;
@@ -451,24 +391,22 @@ export class StorageService {
     const status = normalizePersistedEvaluationStatus(
       row.workflow_status || row.status || partialDetails?.status
     );
-    const eligibility = employee
-      ? CalculationEngine.checkEligibility(employee.startDate, createdAt, settings.minEmploymentMonths)
-      : { isEligible: true, tenureMonths: 0, reason: 'Historical Supabase evaluation' };
+    const eligibility = { isEligible: true, tenureMonths: 0, reason: 'Historical Supabase evaluation' };
 
     return normalizeEvaluationRole(normalizeEvaluationDepartment({
       ...partialDetails,
       id: typeof partialDetails?.id === 'string' ? partialDetails.id : `legacy-${row.id}`,
       databaseId: row.id,
       legacyDetails: rawDetails,
-      employeeId: row.employee_id || partialDetails?.employeeId || employee?.id || `legacy-employee-${row.id}`,
-      employeeName: row.employee_name || partialDetails?.employeeName || employee?.name || row.employee_id || 'Historical employee',
+      employeeId: row.employee_id || partialDetails?.employeeId || `legacy-employee-${row.id}`,
+      employeeName: row.employee_name || partialDetails?.employeeName || row.employee_id || 'Historical employee',
       evaluatorId: partialDetails?.evaluatorId || row.evaluator_email || `legacy-evaluator-${row.id}`,
       evaluatorName: partialDetails?.evaluatorName || row.evaluator_email || 'Historical evaluator',
       evaluatorRole: row.evaluator_role || partialDetails?.evaluatorRole || 'Evaluator',
       departmentId,
-      departmentName: partialDetails?.departmentName || department?.name || employee?.departmentName || row.department || 'Historical department',
-      role: partialDetails?.role || employee?.role || 'Historical employee',
-      level: partialDetails?.level || employee?.level || 'Junior',
+      departmentName: partialDetails?.departmentName || department?.name || row.department || 'Historical department',
+      role: partialDetails?.role || 'Historical employee',
+      level: partialDetails?.level || 'Junior',
       quarter,
       year,
       cycleId: partialDetails?.cycleId || `cycle-${quarter}-${year}`,
@@ -756,12 +694,13 @@ export class StorageService {
   }
 
   // --- BACKUP & RESTORE ---
-  public static exportFullBackup(): string {
+  public static exportFullBackup(authoritativeEmployees: Employee[]): string {
     const payload = {
       version: '1.0.0',
       timestamp: new Date().toISOString(),
       departments: this.getDepartments(),
-      employees: this.getEmployees(),
+      employeeRosterSource: 'supabase-authorized-snapshot',
+      employees: authoritativeEmployees,
       settings: this.getSettings(),
       evaluations: this.getEvaluations(),
       auditLogs: AuditService.getLogs(),
@@ -782,10 +721,9 @@ export class StorageService {
       }
 
       localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(data.departments));
-      localStorage.setItem(
-        STORAGE_KEYS.EMPLOYEES,
-        JSON.stringify(removeLegacyEmployeePasswords(data.employees))
-      );
+      // Employee identities are authoritative in Supabase. Keep the employee section
+      // only for backup compatibility and never restore it into the legacy browser
+      // cache, otherwise a refresh could resurrect stale identities.
       localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(data.evaluations));
 
       AuditService.logAction(
@@ -798,7 +736,10 @@ export class StorageService {
         `Restored system database backup from ${data.timestamp || 'external file'}.`
       );
 
-      return { success: true, message: 'تم استعادة قاعدة البيانات من النسخة الاحتياطية بنجاح.' };
+      return {
+        success: true,
+        message: 'تم استعادة البيانات المحلية المدعومة. تم تجاهل قائمة الموظفين لأن مصدرها الرسمي هو Supabase.',
+      };
     } catch (err: any) {
       return { success: false, message: `فشل تحليل ملف النسخة الاحتياطية: ${err.message}` };
     }
@@ -859,119 +800,4 @@ export class StorageService {
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
 
-  public static exportEmployeesCSV(): string {
-    const employees = this.getEmployees();
-    const headers = [
-      'Employee ID',
-      'Name',
-      'Email',
-      'Department ID',
-      'Department Name',
-      'Role',
-      'Level',
-      'Team Leader Name',
-      'Start Date',
-      'System Role',
-      'Active',
-    ];
-
-    const rows = employees.map((e) => [
-      e.id,
-      `"${e.name.replace(/"/g, '""')}"`,
-      e.email,
-      e.departmentId,
-      `"${e.departmentName.replace(/"/g, '""')}"`,
-      `"${e.role.replace(/"/g, '""')}"`,
-      e.level,
-      `"${e.teamLeaderName || ''}"`,
-      e.startDate,
-      e.systemRole,
-      e.isActive ? 'YES' : 'NO',
-    ]);
-
-    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-  }
-
-  public static importEmployeesFromCSV(
-    csvContent: string,
-    actorId: string,
-    actorName: string,
-    actorRole: any
-  ): { importedCount: number; errors: string[] } {
-    const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) {
-      return { importedCount: 0, errors: ['CSV file is empty or missing data rows.'] };
-    }
-
-    const currentEmployees = this.getEmployees();
-    const departments = this.getDepartments();
-    const errors: string[] = [];
-    let importedCount = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      // Basic CSV splitter handling quoted values
-      const cols = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-      const cleanCols = cols.map((c) => c.replace(/^"|"$/g, '').trim());
-
-      if (cleanCols.length < 5) {
-        errors.push(`Row ${i + 1}: Insufficient columns.`);
-        continue;
-      }
-
-      const [name, email, deptName, role, level, startDate, teamLeaderName] = cleanCols;
-
-      if (!name || !email) {
-        errors.push(`Row ${i + 1}: Name and Email are mandatory.`);
-        continue;
-      }
-
-      const matchedDept = departments.find(
-        (d) => d.name.toLowerCase() === deptName.toLowerCase() || d.id === deptName
-      ) || departments[0];
-
-      const validLevel = ['Junior', 'Mid', 'Senior', 'Team Leader'].includes(level)
-        ? (level as any)
-        : 'Mid';
-
-      const existingIndex = currentEmployees.findIndex((e) => e.email.toLowerCase() === email.toLowerCase());
-
-      const employeeRecord: Employee = {
-        id: existingIndex >= 0 ? currentEmployees[existingIndex].id : `emp-imp-${Date.now()}-${i}`,
-        name,
-        email,
-        departmentId: matchedDept.id,
-        departmentName: matchedDept.name,
-        role: role || 'Team Member',
-        level: validLevel,
-        startDate: startDate || new Date().toISOString().split('T')[0],
-        teamLeaderName: teamLeaderName || matchedDept.teamLeaderName,
-        systemRole: validLevel === 'Team Leader' ? 'TEAM_LEADER' : 'EMPLOYEE',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      if (existingIndex >= 0) {
-        currentEmployees[existingIndex] = employeeRecord;
-      } else {
-        currentEmployees.push(employeeRecord);
-      }
-      importedCount++;
-    }
-
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(currentEmployees));
-
-    AuditService.logAction(
-      actorId,
-      actorName,
-      actorRole,
-      'EMPLOYEES_IMPORTED_CSV',
-      'EMPLOYEE',
-      'batch-import',
-      `Imported ${importedCount} employee records via CSV/Sheets sync.`
-    );
-
-    return { importedCount, errors };
-  }
 }

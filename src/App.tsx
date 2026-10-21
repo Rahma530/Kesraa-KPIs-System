@@ -296,7 +296,14 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin">
           <Route path="dashboard" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
-          <Route path="employees" element={<RouteWrapper component={EmployeesManagementView} />} />
+          <Route
+            path="employees"
+            element={(
+              <CapabilityRoute capability="MANAGE_EMPLOYEES">
+                <RouteWrapper component={EmployeesManagementView} />
+              </CapabilityRoute>
+            )}
+          />
           <Route
             path="settings"
             element={(
@@ -328,7 +335,14 @@ const AppRoutes: React.FC = () => {
           <Route path="dashboard" element={<RouteWrapper component={HeadTechnicalDashboard} />} />
           <Route path="analytics" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
-          <Route path="employees" element={<RouteWrapper component={EmployeesManagementView} />} />
+          <Route
+            path="employees"
+            element={(
+              <CapabilityRoute capability="MANAGE_EMPLOYEES">
+                <RouteWrapper component={EmployeesManagementView} />
+              </CapabilityRoute>
+            )}
+          />
           <Route
             path="settings"
             element={(
@@ -352,7 +366,14 @@ const AppRoutes: React.FC = () => {
           <Route path="dashboard" element={<RouteWrapper component={HeadTechnicalDashboard} />} />
           <Route path="analytics" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
-          <Route path="employees" element={<RouteWrapper component={EmployeesManagementView} />} />
+          <Route
+            path="employees"
+            element={(
+              <CapabilityRoute capability="MANAGE_EMPLOYEES">
+                <RouteWrapper component={EmployeesManagementView} />
+              </CapabilityRoute>
+            )}
+          />
         </Route>
 
         {/* Team Leader Routes */}

@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Plus,
   Search,
   Users,
   Edit2,
@@ -8,25 +7,26 @@ import {
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
-  Download,
-  Upload,
   UserPlus,
   Link2,
   Copy,
   Loader2,
   X
 } from 'lucide-react';
-import { Employee, EmployeeLevel, SystemRole } from '../types';
-import { useData } from '../context/DataContext';
+import { EmployeeLevel, SystemRole } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { CalculationEngine } from '../services/calculationEngine';
+import { useData } from '../context/DataContext';
 import { ARABIC_ROLES, ARABIC_LEVELS } from '../locales/ar';
 import { supabase } from '../lib/supabase';
-import { hasAdditionalPermission } from '../auth/authorization';
+import { isAccountAdministrator } from '../auth/authorization';
+import {
+  EmployeeManagementService,
+  ManagedDepartment,
+  ManagedEmployee,
+} from '../services/employeeManagementService';
 import {
   getRoleOptions,
   getStandardRole,
-  isEvaluableEmployee,
 } from '../utils/departmentNames';
 
 interface EmployeesManagementViewProps {
@@ -35,7 +35,7 @@ interface EmployeesManagementViewProps {
 
 interface EmployeeInvitationResult {
   employeeId: string;
-  authUserId: string;
+  authLinked: boolean;
   alreadyLinked: boolean;
   invitationLink: string | null;
   delivery: 'manual';
@@ -49,111 +49,103 @@ interface AccountFeedback {
 export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = ({
   onOpenGoogleSheets,
 }) => {
-  const { employees, departments, saveEmployee, deleteEmployee, settings } = useData();
   const { canManageEmployees, currentUser } = useAuth();
+  const { refreshEmployees } = useData();
 
+  const [employees, setEmployees] = useState<ManagedEmployee[]>([]);
+  const [managementDepartments, setManagementDepartments] = useState<ManagedDepartment[]>([]);
+  const [isRosterLoading, setIsRosterLoading] = useState(true);
+  const [rosterError, setRosterError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
-  const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
+  const [editingEmp, setEditingEmp] = useState<ManagedEmployee | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [invitationEmployee, setInvitationEmployee] = useState<Employee | null>(null);
+  const [invitationEmployee, setInvitationEmployee] = useState<ManagedEmployee | null>(null);
   const [invitationResult, setInvitationResult] = useState<EmployeeInvitationResult | null>(null);
   const [invitationError, setInvitationError] = useState('');
   const [isGeneratingInvitation, setIsGeneratingInvitation] = useState(false);
   const [invitationCopied, setInvitationCopied] = useState(false);
-  const [accountEnabledByEmployeeId, setAccountEnabledByEmployeeId] = useState<Record<string, boolean>>({});
   const [updatingAccountEmployeeId, setUpdatingAccountEmployeeId] = useState<string | null>(null);
+  const [updatingEmploymentEmployeeId, setUpdatingEmploymentEmployeeId] = useState<string | null>(null);
+  const [isSavingEmployee, setIsSavingEmployee] = useState(false);
   const [accountFeedback, setAccountFeedback] = useState<AccountFeedback | null>(null);
 
-  const canAdministerAccounts = hasAdditionalPermission(currentUser, 'ADMIN');
+  const canAdministerAccounts = isAccountAdministrator(currentUser);
+  const mayManageEmployees = canManageEmployees();
+
+  const loadAuthoritativeRoster = useCallback(async () => {
+    setIsRosterLoading(true);
+    setRosterError('');
+    try {
+      if (!mayManageEmployees) throw new Error('You do not have permission to view employee records.');
+      const roster = await EmployeeManagementService.list();
+      setManagementDepartments(roster.departments);
+      setEmployees(roster.employees);
+    } catch (error) {
+      setEmployees([]);
+      setManagementDepartments([]);
+      setRosterError(
+        error instanceof Error
+          ? error.message
+          : 'Could not load authoritative employee records from Supabase.'
+      );
+    } finally {
+      setIsRosterLoading(false);
+    }
+  }, [mayManageEmployees]);
 
   useEffect(() => {
-    if (!canAdministerAccounts) {
-      setAccountEnabledByEmployeeId({});
-      return;
-    }
-
-    let isActive = true;
-    const loadAccountStatuses = async () => {
-      const employeeIds = employees.map((employee) => employee.id);
-      if (employeeIds.length === 0) {
-        if (isActive) setAccountEnabledByEmployeeId({});
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('employees')
-        .select('id,account_enabled')
-        .in('id', employeeIds);
-
-      if (!isActive) return;
-      if (error) {
-        setAccountFeedback({
-          type: 'error',
-          message: `Could not load employee account statuses: ${error.message}`,
-        });
-        return;
-      }
-
-      setAccountEnabledByEmployeeId(
-        Object.fromEntries(
-          (data || []).map((employee) => [employee.id, employee.account_enabled === true])
-        )
-      );
-    };
-
-    void loadAccountStatuses();
-    return () => {
-      isActive = false;
-    };
-  }, [canAdministerAccounts, employees]);
+    if (currentUser?.id) void loadAuthoritativeRoster();
+  }, [currentUser?.id, loadAuthoritativeRoster]);
 
   // Form State
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
-  const [formDeptId, setFormDeptId] = useState(departments[0]?.id || 'dept-am');
+  const [formDeptId, setFormDeptId] = useState('');
   const [formRole, setFormRole] = useState('');
   const [formLevel, setFormLevel] = useState<EmployeeLevel>('Mid');
   const [formStartDate, setFormStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [formSystemRole, setFormSystemRole] = useState<SystemRole>('EMPLOYEE');
-  const [formTeamLeadName, setFormTeamLeadName] = useState('');
 
   const openCreateModal = () => {
     setEditingEmp(null);
     setFormName('');
     setFormEmail('');
     setFormPhone('');
-    const defaultDeptId = currentUser?.systemRole === 'TEAM_LEADER' ? currentUser.departmentId : (departments[0]?.id || 'dept-am');
+    const defaultDeptId = currentUser?.systemRole === 'TEAM_LEADER'
+      ? currentUser.departmentId
+      : managementDepartments[0]?.id || '';
     setFormDeptId(defaultDeptId);
     setFormRole(getStandardRole(defaultDeptId, '', 'Mid', 'EMPLOYEE'));
     setFormLevel('Mid');
     setFormStartDate(new Date().toISOString().split('T')[0]);
     setFormSystemRole('EMPLOYEE');
-    const defaultDept = departments.find(d => d.id === defaultDeptId);
-    setFormTeamLeadName(defaultDept?.teamLeaderName || '');
     setIsModalOpen(true);
   };
 
-  const openEditModal = (emp: Employee) => {
+  const openEditModal = (emp: ManagedEmployee) => {
     setEditingEmp(emp);
     setFormName(emp.name);
     setFormEmail(emp.email);
     setFormPhone(emp.phone || '');
     setFormDeptId(emp.departmentId);
-    setFormRole(emp.role);
+    setFormRole(emp.jobTitle);
     setFormLevel(emp.level);
     setFormStartDate(emp.startDate);
     setFormSystemRole(emp.systemRole);
-    setFormTeamLeadName(emp.teamLeaderName || '');
     setIsModalOpen(true);
   };
 
-  const handleSaveEmployee = (e: React.FormEvent) => {
+  const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName || !formEmail) return;
+    if (!formName.trim() || !formEmail.trim() || !formDeptId || isSavingEmployee) return;
 
-    const dept = departments.find((d) => d.id === formDeptId) || departments[0];
+    const dept = managementDepartments.find((department) => department.id === formDeptId);
+    if (!dept) {
+      setAccountFeedback({ type: 'error', message: 'Select an authoritative department.' });
+      return;
+    }
 
     const isAiDepartment = dept.id === 'dept-ai';
     const isTeamLeader = !isAiDepartment && (formSystemRole === 'TEAM_LEADER' || formLevel === 'Team Leader');
@@ -161,25 +153,35 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
       ? 'EMPLOYEE'
       : formSystemRole;
     const normalizedLevel = isAiDepartment && formLevel === 'Team Leader' ? 'Senior' : formLevel;
-    const payload: Employee = {
-      id: editingEmp ? editingEmp.id : `emp-${Date.now()}`,
-      name: formName,
-      email: formEmail,
-      phone: formPhone,
-      departmentId: dept.id,
-      departmentName: dept.name,
-      role: getStandardRole(dept.id, formRole || 'Team Member', normalizedLevel, normalizedSystemRole),
-      level: isTeamLeader ? 'Team Leader' : normalizedLevel,
-      startDate: formStartDate,
-      teamLeaderName: formTeamLeadName || dept.teamLeaderName,
-      systemRole: isTeamLeader ? 'TEAM_LEADER' : normalizedSystemRole,
-      isActive: true,
-      createdAt: editingEmp?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    saveEmployee(payload);
-    setIsModalOpen(false);
+    setIsSavingEmployee(true);
+    setAccountFeedback(null);
+    try {
+      await EmployeeManagementService.save({
+        id: editingEmp?.id,
+        expectedVersion: editingEmp?.version,
+        name: formName.trim(),
+        email: formEmail.trim().toLowerCase(),
+        phone: formPhone.trim(),
+        departmentId: dept.id,
+        jobTitle: getStandardRole(dept.id, formRole || 'Team Member', normalizedLevel, normalizedSystemRole),
+        level: isTeamLeader ? 'Team Leader' : normalizedLevel,
+        startDate: formStartDate,
+        systemRole: isTeamLeader ? 'TEAM_LEADER' : normalizedSystemRole,
+      });
+      await Promise.all([loadAuthoritativeRoster(), refreshEmployees()]);
+      setIsModalOpen(false);
+      setAccountFeedback({
+        type: 'success',
+        message: `${formName.trim()} was ${editingEmp ? 'updated' : 'created'} in Supabase with its audit record.`,
+      });
+    } catch (error) {
+      setAccountFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'The employee could not be saved.',
+      });
+    } finally {
+      setIsSavingEmployee(false);
+    }
   };
 
   const closeInvitationResult = () => {
@@ -190,10 +192,10 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     setInvitationCopied(false);
   };
 
-  const generateInvitationLink = async (employee: Employee) => {
+  const generateInvitationLink = async (employee: ManagedEmployee) => {
     if (
       !canAdministerAccounts ||
-      accountEnabledByEmployeeId[employee.id] !== true ||
+      employee.accountEnabled !== true ||
       isGeneratingInvitation
     ) return;
 
@@ -230,6 +232,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
       }
 
       setInvitationResult(data);
+      await Promise.all([loadAuthoritativeRoster(), refreshEmployees()]);
     } catch (error) {
       setInvitationError(
         error instanceof Error ? error.message : 'Could not generate the employee setup link.'
@@ -251,7 +254,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     }
   };
 
-  const updateEmployeeAccountStatus = async (employee: Employee, accountEnabled: boolean) => {
+  const updateEmployeeAccountStatus = async (employee: ManagedEmployee, accountEnabled: boolean) => {
     if (!canAdministerAccounts || updatingAccountEmployeeId) return;
     if (
       !accountEnabled &&
@@ -263,22 +266,11 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     setUpdatingAccountEmployeeId(employee.id);
     setAccountFeedback(null);
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .update({ account_enabled: accountEnabled })
-        .eq('id', employee.id)
-        .select('id,account_enabled')
-        .single();
-
-      if (error) throw error;
-
-      setAccountEnabledByEmployeeId((current) => ({
-        ...current,
-        [data.id]: data.account_enabled === true,
-      }));
+      await EmployeeManagementService.setAccountEnabled(employee.id, accountEnabled, employee.version);
+      await Promise.all([loadAuthoritativeRoster(), refreshEmployees()]);
       setAccountFeedback({
         type: 'success',
-        message: `${employee.name}'s account was ${accountEnabled ? 'enabled' : 'disabled'} successfully.`,
+        message: `${employee.name}'s account was ${accountEnabled ? 'enabled' : 'disabled'} successfully with its audit record.`,
       });
     } catch (error) {
       setAccountFeedback({
@@ -292,17 +284,48 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
     }
   };
 
+  const updateEmploymentStatus = async (employee: ManagedEmployee, employmentActive: boolean) => {
+    if (!canAdministerAccounts || updatingEmploymentEmployeeId) return;
+    const action = employmentActive ? 'reactivate' : 'deactivate';
+    if (!window.confirm(
+      employmentActive
+        ? `Reactivate ${employee.name}'s employment record? Account access will remain unchanged.`
+        : `Deactivate ${employee.name}? The employee record and history will be retained and account access will be disabled.`,
+    )) return;
+
+    setUpdatingEmploymentEmployeeId(employee.id);
+    setAccountFeedback(null);
+    try {
+      await EmployeeManagementService.setEmploymentActive(employee.id, employmentActive, employee.version);
+      await Promise.all([loadAuthoritativeRoster(), refreshEmployees()]);
+      setAccountFeedback({
+        type: 'success',
+        message: `${employee.name} was ${employmentActive ? 'reactivated' : 'deactivated'} successfully with its audit record.`,
+      });
+    } catch (error) {
+      setAccountFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : `Could not ${action} the employee.`,
+      });
+    } finally {
+      setUpdatingEmploymentEmployeeId(null);
+    }
+  };
+
   const filteredEmployees = employees.filter((emp) => {
-    if (!isEvaluableEmployee(emp)) return false;
-    if (currentUser?.systemRole === 'TEAM_LEADER' && emp.departmentId !== currentUser.departmentId) return false;
+    if (
+      currentUser?.systemRole === 'TEAM_LEADER' &&
+      !canAdministerAccounts &&
+      emp.departmentId !== currentUser.departmentId
+    ) return false;
 
     if (deptFilter !== 'ALL' && emp.departmentId !== deptFilter) return false;
     if (searchTerm.trim() !== '') {
       const q = searchTerm.toLowerCase();
       const matchName = emp.name.toLowerCase().includes(q);
       const matchEmail = emp.email.toLowerCase().includes(q);
-      const matchPhone = emp.phone?.toLowerCase().includes(q);
-      const matchRole = emp.role.toLowerCase().includes(q);
+      const matchPhone = emp.phone.toLowerCase().includes(q);
+      const matchRole = emp.jobTitle.toLowerCase().includes(q);
       const matchDept = emp.departmentName.toLowerCase().includes(q);
       if (!matchName && !matchEmail && !matchPhone && !matchRole && !matchDept) return false;
     }
@@ -311,7 +334,9 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
   const roleOptions = formSystemRole === 'HEAD_TECHNICAL'
     ? ['Head Of Technical']
-    : getRoleOptions(formDeptId);
+    : formSystemRole === 'AI_ENGINEER'
+      ? ['AI Engineer']
+      : getRoleOptions(formDeptId);
 
   return (
     <div className="view-shell">
@@ -322,6 +347,9 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
           <h2 className="font-display text-2xl text-white tracking-tight mt-1">
             Employees
           </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            Authoritative employee identities and account states from Supabase. Visible records remain subject to database access policies.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
@@ -334,11 +362,12 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
             CSV Import / Export
           </button>
 
-          {canManageEmployees() && (
+          {mayManageEmployees && (
             <button
               id="btn-add-employee"
               onClick={openCreateModal}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 transition-all "
+              disabled={isRosterLoading || managementDepartments.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 transition-all disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserPlus className="h-4 w-4" />
               Add Employee
@@ -383,7 +412,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {currentUser?.systemRole !== 'TEAM_LEADER' && (
+          {(currentUser?.systemRole !== 'TEAM_LEADER' || canAdministerAccounts) && (
             <select
               id="select-dept-filter-employees"
               value={deptFilter}
@@ -391,7 +420,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
               className="rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer"
             >
               <option value="ALL">All Departments</option>
-              {departments.map((dept) => (
+              {managementDepartments.map((dept) => (
                 <option key={dept.id} value={dept.id}>
                   {dept.name}
                 </option>
@@ -415,31 +444,58 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                 <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">Department</th>
                 <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">Level</th>
                 <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">System Role</th>
-                <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">Start Date / Tenure</th>
-                <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">Eligibility</th>
+                <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">Start Date</th>
+                <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest">Account Status</th>
                 <th className="px-5 py-3.5 font-medium uppercase text-[10px] tracking-widest text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-white">
-              {filteredEmployees.length === 0 ? (
+              {isRosterLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-12 text-center text-slate-400">
+                    <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin text-teal-400" />
+                    <p className="font-semibold">Loading authoritative employee records...</p>
+                  </td>
+                </tr>
+              ) : rosterError ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-12 text-center text-rose-300">
+                    <AlertCircle className="mx-auto mb-2 h-8 w-8" />
+                    <p className="font-semibold">{rosterError}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Employee data was not replaced with cached or default records.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void loadAuthoritativeRoster()}
+                      className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/20"
+                    >
+                      Retry
+                    </button>
+                  </td>
+                </tr>
+              ) : filteredEmployees.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
                     <Users className="mx-auto h-8 w-8 text-slate-600 mb-2" />
-                    <p className="font-semibold text-slate-400">No employees match your search.</p>
+                    <p className="font-semibold text-slate-400">
+                      {employees.length === 0
+                        ? 'No employee records were returned from Supabase.'
+                        : 'No employees match your search.'}
+                    </p>
+                    {employees.length === 0 && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        The table may be empty, or your account may not have permission to read employee records.
+                      </p>
+                    )}
                   </td>
                 </tr>
               ) : (
                 filteredEmployees.map((emp) => {
-                  const eligibility = CalculationEngine.checkEligibility(
-                    emp.startDate,
-                    new Date().toISOString(),
-                    settings.minEmploymentMonths
-                  );
-
                   const isSenior = emp.level === 'Senior';
                   const isTL = emp.level === 'Team Leader';
                   const isMid = emp.level === 'Mid';
-                  const accountEnabled = accountEnabledByEmployeeId[emp.id];
+                  const accountEnabled = emp.accountEnabled;
                   const isUpdatingAccount = updatingAccountEmployeeId === emp.id;
 
                   return (
@@ -461,7 +517,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
                       <td className="px-5 py-4">
                         <div className="font-medium text-slate-300">{emp.departmentName}</div>
-                        <div className="text-[10px] text-slate-500">{emp.role}</div>
+                        <div className="text-[10px] text-slate-500">{emp.jobTitle}</div>
                       </td>
 
                       <td className="px-5 py-4">
@@ -488,29 +544,48 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
                       <td className="px-5 py-4 font-mono text-slate-300">
                         <div>{emp.startDate}</div>
-                        <div className="text-[10px] text-slate-500">{eligibility.tenureMonths} months</div>
                       </td>
 
                       <td className="px-5 py-4">
-                        {eligibility.isEligible ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300">
-                            <CheckCircle2 className="h-3 w-3" /> Eligible
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
+                            accountEnabled
+                              ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                              : 'border-rose-500/30 bg-rose-500/15 text-rose-300'
+                          }`}>
+                            {accountEnabled ? 'Enabled' : 'Disabled'}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 text-[10px] font-bold text-rose-300">
-                            <AlertCircle className="h-3 w-3" /> Not Eligible
+                          <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${
+                            emp.authLinked
+                              ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                              : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                          }`}>
+                            {emp.authLinked ? 'Auth linked' : 'Auth not linked'}
                           </span>
-                        )}
+                          <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${
+                            emp.employmentActive === false
+                              ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                              : emp.employmentActive === true
+                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                : 'border-slate-500/30 bg-slate-500/10 text-slate-300'
+                          }`}>
+                            {emp.employmentActive === false
+                              ? 'Employment inactive'
+                              : emp.employmentActive === true
+                                ? 'Employment active'
+                                : 'Employment not classified'}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="px-5 py-4 text-right">
-                        {canManageEmployees() && (
+                        {mayManageEmployees && (
                           <div className="flex flex-wrap items-center justify-end gap-2">
                             {canAdministerAccounts && typeof accountEnabled === 'boolean' && (
                               <button
                                 type="button"
                                 onClick={() => updateEmployeeAccountStatus(emp, !accountEnabled)}
-                                disabled={updatingAccountEmployeeId !== null}
+                                disabled={updatingAccountEmployeeId !== null || (emp.employmentActive === false && !accountEnabled)}
                                 className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-50 ${
                                   accountEnabled
                                     ? 'border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20'
@@ -523,7 +598,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                                   : accountEnabled ? 'Disable Account' : 'Enable Account'}
                               </button>
                             )}
-                            {canAdministerAccounts && accountEnabled === true && (
+                            {canAdministerAccounts && accountEnabled === true && emp.employmentActive !== false && (
                               <button
                                 id={`btn-invite-emp-${emp.id}`}
                                 onClick={() => generateInvitationLink(emp)}
@@ -541,26 +616,31 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                                   : 'Generate Setup Link'}
                               </button>
                             )}
-                            <button
-                              id={`btn-edit-emp-${emp.id}`}
-                              onClick={() => openEditModal(emp)}
-                              className="text-slate-400 hover:text-teal-300 transition-colors p-1"
-                              title="Edit employee"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              id={`btn-del-emp-${emp.id}`}
-                              onClick={() => {
-                                if (confirm(`Remove ${emp.name} from the active employee list?`)) {
-                                  deleteEmployee(emp.id);
-                                }
-                              }}
-                              className="text-slate-400 hover:text-rose-400 transition-colors p-1"
-                              title="Delete employee"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {(canAdministerAccounts || ['EMPLOYEE', 'TEAM_LEADER'].includes(emp.systemRole)) && (
+                              <button
+                                id={`btn-edit-emp-${emp.id}`}
+                                onClick={() => openEditModal(emp)}
+                                className="text-slate-400 hover:text-teal-300 transition-colors p-1"
+                                title="Edit employee"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canAdministerAccounts && (
+                              <button
+                                id={`btn-deactivate-emp-${emp.id}`}
+                                onClick={() => void updateEmploymentStatus(emp, emp.employmentActive === false)}
+                                disabled={updatingEmploymentEmployeeId !== null}
+                                className="text-slate-400 hover:text-rose-400 transition-colors p-1 disabled:cursor-wait disabled:opacity-50"
+                                title={emp.employmentActive === false ? 'Reactivate employee' : 'Deactivate employee'}
+                              >
+                                {updatingEmploymentEmployeeId === emp.id
+                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  : emp.employmentActive === false
+                                    ? <CheckCircle2 className="h-3.5 w-3.5" />
+                                    : <Trash2 className="h-3.5 w-3.5" />}
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>
@@ -610,7 +690,9 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
               {invitationResult?.alreadyLinked && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
-                  This employee is already linked to an Auth account. No new invitation or setup link was created.
+                  {invitationResult.invitationLink
+                    ? 'This employee is already linked to an Auth account. A recovery setup link was generated for that existing account.'
+                    : 'This employee is already linked to an Auth account. No new invitation or setup link was created.'}
                 </div>
               )}
 
@@ -730,7 +812,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                     disabled={currentUser?.systemRole === 'TEAM_LEADER'}
                     className="w-full rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-white focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {departments.map((d) => (
+                    {managementDepartments.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name}
                       </option>
@@ -790,12 +872,12 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                     className="w-full rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-white focus:outline-none"
                   >
                     <option value="EMPLOYEE">Employee / Agent</option>
-                    {formDeptId === 'dept-ai' && <option value="AI_ENGINEER">AI Engineer</option>}
+                    {canAdministerAccounts && formDeptId === 'dept-ai' && <option value="AI_ENGINEER">AI Engineer</option>}
                     {formDeptId !== 'dept-ai' && <option value="TEAM_LEADER">Team Leader</option>}
-                    <option value="HEAD_TECHNICAL">Head Of Technical</option>
-                    <option value="HR">HR</option>
-                    <option value="CEO">CEO</option>
-                    <option value="ADMIN">System Administrator</option>
+                    {canAdministerAccounts && <option value="HEAD_TECHNICAL">Head Of Technical</option>}
+                    {canAdministerAccounts && <option value="HR">HR</option>}
+                    {canAdministerAccounts && <option value="CEO">CEO</option>}
+                    {canAdministerAccounts && <option value="ADMIN">System Administrator</option>}
                   </select>
                 </div>
               </div>
@@ -821,9 +903,11 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500"
+                  disabled={isSavingEmployee}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-teal-500/25 hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
                 >
-                  {editingEmp ? 'Save Changes' : 'Create Employee'}
+                  {isSavingEmployee && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {isSavingEmployee ? 'Saving...' : editingEmp ? 'Save Changes' : 'Create Employee'}
                 </button>
               </div>
             </form>

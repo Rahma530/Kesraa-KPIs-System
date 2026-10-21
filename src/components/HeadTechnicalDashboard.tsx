@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Users,
   Award,
@@ -17,6 +17,7 @@ import { useData } from '../context/DataContext';
 import { ARABIC_LEVELS, ARABIC_STATUSES } from '../locales/ar';
 import { Employee, EmployeeLevel } from '../types';
 import { getRoleOptions, getStandardRole } from '../utils/departmentNames';
+import { EmployeeManagementService, ManagedDepartment } from '../services/employeeManagementService';
 
 interface HeadTechnicalDashboardProps {
   onStartEvaluation: (employeeId: string) => void;
@@ -35,6 +36,9 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
 
   // Add Employee Modal
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSavingEmployee, setIsSavingEmployee] = useState(false);
+  const [employeeSaveError, setEmployeeSaveError] = useState('');
+  const [managementDepartments, setManagementDepartments] = useState<ManagedDepartment[]>([]);
   const [newEmp, setNewEmp] = useState({
     name: '',
     email: '',
@@ -42,6 +46,20 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
     level: 'Junior' as EmployeeLevel,
     departmentId: '',
   });
+
+  useEffect(() => {
+    let active = true;
+    EmployeeManagementService.list()
+      .then((roster) => {
+        if (active) setManagementDepartments(roster.departments);
+      })
+      .catch((error) => {
+        if (active) setEmployeeSaveError(
+          error instanceof Error ? error.message : 'Could not load authoritative departments.',
+        );
+      });
+    return () => { active = false; };
+  }, []);
 
   if (!currentUser || !isTechnicalReviewer()) {
     return (
@@ -55,11 +73,11 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
     setExpandedDepts((prev) => ({ ...prev, [deptId]: !prev[deptId] }));
   };
 
-  const handleAddEmployee = (e: React.FormEvent) => {
+  const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmp.name || !newEmp.email || !newEmp.role || !newEmp.departmentId) return;
+    if (!newEmp.name || !newEmp.email || !newEmp.role || !newEmp.departmentId || isSavingEmployee) return;
 
-    const dept = departments.find(d => d.id === newEmp.departmentId);
+    const dept = managementDepartments.find(d => d.id === newEmp.departmentId);
     const isAiDepartment = newEmp.departmentId === 'dept-ai';
     const normalizedLevel = isAiDepartment && newEmp.level === 'Team Leader' ? 'Senior' : newEmp.level;
     const employeeToSave: Employee = {
@@ -79,9 +97,17 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    saveEmployee(employeeToSave);
-    setShowAddModal(false);
-    setNewEmp({ name: '', email: '', role: '', level: 'Junior', departmentId: '' });
+    setIsSavingEmployee(true);
+    setEmployeeSaveError('');
+    try {
+      await saveEmployee(employeeToSave);
+      setShowAddModal(false);
+      setNewEmp({ name: '', email: '', role: '', level: 'Junior', departmentId: '' });
+    } catch (error) {
+      setEmployeeSaveError(error instanceof Error ? error.message : 'The employee could not be saved.');
+    } finally {
+      setIsSavingEmployee(false);
+    }
   };
 
   // Only employees who participate in the evaluation process are shown here.
@@ -137,7 +163,8 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2 text-xs font-semibold text-white transition-colors shrink-0"
+          disabled={managementDepartments.length === 0}
+          className="flex items-center gap-2 rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2 text-xs font-semibold text-white transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           Add Employee
@@ -411,6 +438,11 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
             </div>
 
             <form onSubmit={handleAddEmployee} className="space-y-4">
+              {employeeSaveError && (
+                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                  {employeeSaveError}
+                </p>
+              )}
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Department</label>
                 <select
@@ -429,7 +461,7 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
                   className="w-full rounded-xl border border-white/10 bg-black/40 py-2.5 px-3 text-sm text-white focus:border-purple-500/50 focus:outline-none"
                 >
                   <option value="">Select a department...</option>
-                  {departments.map(dept => (
+                  {managementDepartments.map(dept => (
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
                 </select>
@@ -499,9 +531,10 @@ export const HeadTechnicalDashboard: React.FC<HeadTechnicalDashboardProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold py-2.5 transition-colors"
+                  disabled={isSavingEmployee}
+                  className="w-full rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold py-2.5 transition-colors disabled:cursor-wait disabled:opacity-50"
                 >
-                  Add Employee
+                  {isSavingEmployee ? 'Saving...' : 'Add Employee'}
                 </button>
               </div>
             </form>

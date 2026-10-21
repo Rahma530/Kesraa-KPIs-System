@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   X,
   FileSpreadsheet,
@@ -9,24 +9,59 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Code
+  Code,
+  Loader2,
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
-import { Employee, Evaluation } from '../types';
+import { isAccountAdministrator } from '../auth/authorization';
+import {
+  EmployeeManagementService,
+  generateEmployeesCsv,
+  ManagedEmployee,
+  parseEmployeeImportCsv,
+} from '../services/employeeManagementService';
 
 interface GoogleSheetsModalProps {
   onClose: () => void;
 }
 
 export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({ onClose }) => {
-  const { evaluations, employees, departments, saveEmployee, selectedQuarter, selectedYear } = useData();
-  const { currentUser } = useAuth();
+  const { evaluations, selectedQuarter, selectedYear, refreshEmployees } = useData();
+  const { currentUser, hasCapability } = useAuth();
+  const canManageEmployees = hasCapability('MANAGE_EMPLOYEES');
+  const canImportEmployees = isAccountAdministrator(currentUser);
 
   const [activeTab, setActiveTab] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
   const [csvInput, setCsvInput] = useState('');
   const [importStatus, setImportStatus] = useState<{ success: boolean; message: string } | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [authoritativeEmployees, setAuthoritativeEmployees] = useState<ManagedEmployee[]>([]);
+  const [isRosterLoading, setIsRosterLoading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [rosterError, setRosterError] = useState('');
+
+  const loadAuthoritativeRoster = useCallback(async () => {
+    if (!canManageEmployees) return [];
+    setIsRosterLoading(true);
+    setRosterError('');
+    try {
+      const roster = await EmployeeManagementService.list();
+      setAuthoritativeEmployees(roster.employees);
+      return roster.employees;
+    } catch (error) {
+      setAuthoritativeEmployees([]);
+      const message = error instanceof Error ? error.message : 'Could not load the Supabase employee roster.';
+      setRosterError(message);
+      throw error;
+    } finally {
+      setIsRosterLoading(false);
+    }
+  }, [canManageEmployees]);
+
+  useEffect(() => {
+    if (canManageEmployees) void loadAuthoritativeRoster().catch(() => undefined);
+  }, [canManageEmployees, loadAuthoritativeRoster]);
 
   // Helper to convert evaluations to CSV
   const generateEvaluationsCSV = () => {
@@ -58,31 +93,6 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({ onClose })
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   };
 
-  // Helper to convert employees roster to CSV
-  const generateEmployeesCSV = () => {
-    const headers = [
-      'Employee ID', 'Name', 'Email', 'Phone', 'Department ID', 'Department Name',
-      'Role', 'Level', 'Start Date', 'Team Leader', 'System Role', 'Active',
-    ];
-
-    const rows = employees.map((emp) => [
-      emp.id,
-      `"${emp.name}"`,
-      `"${emp.email}"`,
-      `"${emp.phone || ''}"`,
-      emp.departmentId,
-      `"${emp.departmentName}"`,
-      `"${emp.role}"`,
-      `"${emp.level}"`,
-      emp.startDate,
-      `"${emp.teamLeaderName || ''}"`,
-      emp.systemRole,
-      emp.isActive ? 'TRUE' : 'FALSE',
-    ]);
-
-    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-  };
-
   const handleDownloadEvaluations = () => {
     const csv = generateEvaluationsCSV();
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -94,69 +104,55 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({ onClose })
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadEmployees = () => {
-    const csv = generateEmployeesCSV();
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Company_Employees_Roster_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const handleDownloadEmployees = async () => {
+    try {
+      const latestEmployees = await loadAuthoritativeRoster();
+      const csv = generateEmployeesCsv(latestEmployees);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Company_Employees_Roster_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // The authoritative loading error is displayed in the modal.
+    }
   };
 
-  const handleImportCSV = () => {
-    if (!csvInput.trim()) return;
-
-    try {
-      const lines = csvInput.trim().split('\n');
-      if (lines.length < 2) throw new Error('The CSV must contain a header row and at least one employee record.');
-
-      let importedCount = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',').map((p) => p.replace(/^"|"$/g, '').trim());
-        if (parts.length >= 3) {
-          const name = parts[0] || `Employee ${Date.now()}`;
-          const email = parts[1] || `employee_${Date.now()}@company.com`;
-          const deptName = parts[2] || 'Account Management';
-          const role = parts[3] || 'Team Member';
-          const level = (parts[4] as any) || 'Mid';
-          const startDate = parts[5] || '2024-01-01';
-
-          const dept =
-            departments.find((d) => d.name.toLowerCase() === deptName.toLowerCase()) ||
-            departments[0];
-
-          saveEmployee({
-            id: `emp-imp-${Date.now()}-${i}`,
-            name,
-            email,
-            departmentId: dept.id,
-            departmentName: dept.name,
-            role,
-            level,
-            startDate,
-            teamLeaderName: dept.teamLeaderName,
-            systemRole: 'EMPLOYEE',
-            isActive: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-          importedCount++;
-        }
-      }
-
-      setImportStatus({
-        success: true,
-        message: `${importedCount} employees were imported successfully.`,
-      });
-      setCsvInput('');
-      setTimeout(() => setImportStatus(null), 5000);
-    } catch (err: any) {
+  const handleImportCSV = async () => {
+    if (!csvInput.trim() || !canImportEmployees || isImporting) return;
+    const parsed = parseEmployeeImportCsv(csvInput);
+    if (parsed.errors.length > 0) {
       setImportStatus({
         success: false,
-        message: `CSV import failed: ${err.message || 'Invalid column structure'}`,
+        message: parsed.errors.slice(0, 8).join(' '),
       });
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const result = await EmployeeManagementService.import(parsed.rows);
+      const issueDetails = [...result.skipped, ...result.failed]
+        .slice(0, 6)
+        .map((item) => `Row ${item.rowNumber}: ${item.reason}`)
+        .join(' ');
+      setImportStatus({
+        success: result.failed.length === 0,
+        message: `${result.successful.length} saved, ${result.skipped.length} skipped, ${result.failed.length} failed.${issueDetails ? ` ${issueDetails}` : ''}`,
+      });
+      if (result.successful.length > 0) {
+        setCsvInput('');
+        await Promise.all([loadAuthoritativeRoster(), refreshEmployees()]);
+      }
+    } catch (error) {
+      setImportStatus({
+        success: false,
+        message: error instanceof Error ? error.message : 'CSV import failed.',
+      });
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -218,17 +214,19 @@ function syncEvaluationsToSheet() {
             Export CSV
           </button>
 
-          <button
-            onClick={() => setActiveTab('IMPORT')}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all ${
-              activeTab === 'IMPORT'
-                ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-            }`}
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Import CSV
-          </button>
+          {canImportEmployees && (
+            <button
+              onClick={() => setActiveTab('IMPORT')}
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                activeTab === 'IMPORT'
+                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+              }`}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Import CSV
+            </button>
+          )}
         </div>
 
         {/* Modal Body */}
@@ -269,25 +267,29 @@ function syncEvaluationsToSheet() {
                 </button>
               </div>
 
-              <div
-                className="rounded-2xl border border-white/10 p-5 space-y-3"
-                style={{ background: 'rgba(255, 255, 255, 0.03)' }}
-              >
-                <h3 className="font-bold text-white text-sm">
-                  Employee Directory
-                </h3>
-                <p className="text-slate-300 leading-relaxed">
-                  Export the active employee directory.
-                </p>
-                <button
-                  id="btn-export-employees-csv"
-                  onClick={handleDownloadEmployees}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/10 px-4 py-2 font-semibold text-white hover:bg-white/15"
+              {canManageEmployees && (
+                <div
+                  className="rounded-2xl border border-white/10 p-5 space-y-3"
+                  style={{ background: 'rgba(255, 255, 255, 0.03)' }}
                 >
-                  <Download className="h-4 w-4" />
-                  Download Employees CSV ({employees.length})
-                </button>
-              </div>
+                  <h3 className="font-bold text-white text-sm">
+                    Employee Directory
+                  </h3>
+                  <p className="text-slate-300 leading-relaxed">
+                    Export the latest authorized employee roster directly from Supabase.
+                  </p>
+                  {rosterError && <p className="text-rose-300">{rosterError}</p>}
+                  <button
+                    id="btn-export-employees-csv"
+                    onClick={() => void handleDownloadEmployees()}
+                    disabled={isRosterLoading}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/10 px-4 py-2 font-semibold text-white hover:bg-white/15 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    {isRosterLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {isRosterLoading ? 'Loading Supabase roster...' : `Download Employees CSV (${authoritativeEmployees.length})`}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -301,26 +303,27 @@ function syncEvaluationsToSheet() {
                   Paste Employee CSV Data
                 </h3>
                 <p className="text-slate-300 leading-relaxed">
-                  Format: <code>Name, Email, Department, Role, Level, Start Date (YYYY-MM-DD)</code>
+                  Include a header row with: <code>Name, Email, Department ID, Job Title, Level, Start Date</code>.
+                  Optional columns are <code>Employee ID, Phone, System Role</code>.
                 </p>
 
                 <textarea
                   rows={6}
                   value={csvInput}
                   onChange={(e) => setCsvInput(e.target.value)}
-                  placeholder={`Jordan Pierce, jordan.p@company.com, Creative, Senior Designer, Senior, 2023-05-12\nAlex Morgan, alex.m@company.com, Media Buying, Campaign Specialist, Mid, 2024-02-01`}
+                  placeholder={`Name,Email,Department ID,Job Title,Level,Start Date,System Role\nJordan Pierce,jordan.p@company.com,dept-cr,Senior Designer,Senior,2023-05-12,EMPLOYEE`}
                   className="w-full font-mono rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white placeholder-slate-500 focus:border-emerald-500/60 focus:outline-none"
                 />
 
                 <div className="flex justify-end">
                   <button
                     id="btn-submit-csv-import"
-                    onClick={handleImportCSV}
-                    disabled={!csvInput.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-600 px-4 py-2 font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-500 disabled:opacity-50"
+                    onClick={() => void handleImportCSV()}
+                    disabled={!csvInput.trim() || isImporting}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-600 px-4 py-2 font-semibold text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-50"
                   >
-                    <Upload className="h-4 w-4" />
-                    Import CSV
+                    {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {isImporting ? 'Importing...' : 'Import CSV'}
                   </button>
                 </div>
               </div>

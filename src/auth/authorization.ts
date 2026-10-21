@@ -48,6 +48,10 @@ export const hasAdditionalPermission = (
   permission: AdditionalSystemPermission
 ): boolean => employee?.additionalPermissions?.includes(permission) === true;
 
+export const isAccountAdministrator = (
+  employee: Employee | null | undefined
+): boolean => employee?.systemRole === 'ADMIN' || hasAdditionalPermission(employee, 'ADMIN');
+
 export const hasAuthorizationCapability = (
   employee: Employee | null | undefined,
   capability: AuthorizationCapability

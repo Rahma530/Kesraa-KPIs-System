@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AuthChangeEvent, User } from '@supabase/supabase-js';
 import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
-import { StorageService } from '../services/storageService';
 import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
 import { isEvaluableEmployee } from '../utils/departmentNames';
 import {
@@ -13,7 +12,6 @@ import {
 
 export interface AuthContextType {
   currentUser: Employee | null;
-  allUsers: Employee[];
   isAuthenticated: boolean;
   isLoading: boolean;
   isPasswordSetupFlow: boolean;
@@ -47,8 +45,9 @@ interface EmployeeProfileRow {
   start_date: string;
   created_at?: string | null;
   updated_at?: string | null;
-  auth_user_id: string | null;
   account_enabled: boolean;
+  job_title?: string | null;
+  employment_active?: boolean | null;
 }
 
 const SYSTEM_ROLES: SystemRole[] = [
@@ -83,11 +82,9 @@ const getAdditionalPermissions = (user: User): AdditionalSystemPermission[] => {
 };
 
 const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
-  const authUserId = authUser.id;
   const { data: profileData, error: profileError } = await supabase
     .from('employees')
-    .select('id,name,email,phone,department_id,level,system_role,start_date,created_at,updated_at,auth_user_id,account_enabled')
-    .eq('auth_user_id', authUserId)
+    .select('id,name,email,phone,department_id,level,system_role,start_date,created_at,updated_at,account_enabled,job_title,employment_active')
     .maybeSingle();
 
   if (profileError) {
@@ -103,6 +100,9 @@ const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
   if (profile.account_enabled !== true) {
     throw new EmployeeProfileError('Your employee account is disabled. Contact an administrator.');
   }
+  if (profile.employment_active === false) {
+    throw new EmployeeProfileError('Your employment profile is inactive. Contact an administrator.');
+  }
   if (!SYSTEM_ROLES.includes(profile.system_role as SystemRole)) {
     throw new EmployeeProfileError('Your employee profile has an unsupported system role.');
   }
@@ -110,45 +110,39 @@ const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
     throw new EmployeeProfileError('Your employee profile has an unsupported employee level.');
   }
 
-  const [{ data: departmentData, error: departmentError }, cachedEmployees] = await Promise.all([
-    supabase.from('departments').select('id,name').eq('id', profile.department_id).maybeSingle(),
-    Promise.resolve(StorageService.getEmployees()),
-  ]);
+  const { data: departmentData, error: departmentError } = await supabase
+    .from('departments')
+    .select('id,name')
+    .eq('id', profile.department_id)
+    .maybeSingle();
   if (departmentError) {
     throw new EmployeeProfileError(`Could not load your department profile: ${departmentError.message}`);
   }
 
-  const cached = cachedEmployees.find((employee) => employee.id === profile.id);
   const now = new Date().toISOString();
   const systemRole = profile.system_role as SystemRole;
 
   return {
     id: profile.id,
-    authUserId: profile.auth_user_id || authUserId,
     accountEnabled: true,
     additionalPermissions: getAdditionalPermissions(authUser),
     name: profile.name,
     email: profile.email,
-    phone: profile.phone || cached?.phone,
+    phone: profile.phone || undefined,
     departmentId: profile.department_id,
-    departmentName: departmentData?.name || cached?.departmentName || profile.department_id,
-    role: cached?.role || systemRole.replaceAll('_', ' '),
+    departmentName: departmentData?.name || profile.department_id,
+    role: profile.job_title || systemRole.replaceAll('_', ' '),
     level: profile.level as EmployeeLevel,
-    teamLeaderId: cached?.teamLeaderId,
-    teamLeaderName: cached?.teamLeaderName,
     startDate: profile.start_date,
     isActive: true,
     isHeadTechnical: systemRole === 'HEAD_TECHNICAL',
     systemRole,
-    salary: cached?.salary,
-    avatarUrl: cached?.avatarUrl,
-    createdAt: profile.created_at || cached?.createdAt || now,
-    updatedAt: profile.updated_at || cached?.updatedAt || now,
+    createdAt: profile.created_at || now,
+    updatedAt: profile.updated_at || now,
   };
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [allUsers, setAllUsers] = useState<Employee[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPasswordSetupFlow, setIsPasswordSetupFlow] = useState(
@@ -182,9 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let mounted = true;
-    StorageService.initialize();
     localStorage.removeItem(LEGACY_CURRENT_USER_KEY);
-    setAllUsers(StorageService.getEmployees());
 
     const rejectUnusableSession = async (error: unknown) => {
       if (!mounted) return;
@@ -357,7 +349,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         currentUser,
-        allUsers,
         isAuthenticated,
         isLoading,
         isPasswordSetupFlow,
