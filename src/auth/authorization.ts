@@ -31,7 +31,6 @@ const ROLE_CAPABILITIES: Record<SystemRole, readonly AuthorizationCapability[]> 
     'VIEW_KPI_WEIGHTS', 'VIEW_EXECUTIVE_DASHBOARD', 'VIEW_AUDIT_LOGS',
   ],
   HEAD_TECHNICAL: ['MANAGE_EMPLOYEES', 'EVALUATE_ALL_EMPLOYEES', 'VIEW_ALL_EVALUATIONS'],
-  AI_ENGINEER: ['MANAGE_EMPLOYEES', 'EVALUATE_ALL_EMPLOYEES', 'VIEW_ALL_EVALUATIONS'],
   TEAM_LEADER: [],
   EMPLOYEE: [],
 };
@@ -69,4 +68,4 @@ export const hasAuthorizationCapability = (
 
 export const isTechnicalReviewer = (
   employee: Employee | null | undefined
-): boolean => employee?.systemRole === 'HEAD_TECHNICAL' || employee?.systemRole === 'AI_ENGINEER';
+): boolean => employee?.systemRole === 'HEAD_TECHNICAL';

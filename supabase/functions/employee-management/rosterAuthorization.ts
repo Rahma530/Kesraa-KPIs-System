@@ -18,7 +18,7 @@ export const resolveEvaluationRosterScope = (
   hasAdministrativeOverride: boolean,
 ): EvaluationRosterScope | null => {
   if (hasAdministrativeOverride || ['ADMIN', 'HR', 'CEO'].includes(systemRole)) return 'all';
-  if (['HEAD_TECHNICAL', 'AI_ENGINEER'].includes(systemRole)) return 'evaluable';
+  if (systemRole === 'HEAD_TECHNICAL') return 'evaluable';
   if (systemRole === 'TEAM_LEADER') return 'department';
   if (systemRole === 'EMPLOYEE') return 'self';
   return null;

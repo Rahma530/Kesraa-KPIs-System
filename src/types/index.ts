@@ -1,10 +1,12 @@
+// AI_ENGINEER removed per explicit business decision (2026-10-22): it is a
+// job title only (shown via getStandardRole for dept-ai), never a
+// permission tier. No employee held this system_role at the time of removal.
 export type SystemRole =
   | 'ADMIN'
   | 'HR'
   | 'CEO'
   | 'TEAM_LEADER'
   | 'HEAD_TECHNICAL'
-  | 'AI_ENGINEER'
   | 'EMPLOYEE';
 
 export type AdditionalSystemPermission = 'ADMIN';

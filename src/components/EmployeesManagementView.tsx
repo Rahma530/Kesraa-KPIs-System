@@ -149,9 +149,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
     const isAiDepartment = dept.id === 'dept-ai';
     const isTeamLeader = !isAiDepartment && (formSystemRole === 'TEAM_LEADER' || formLevel === 'Team Leader');
-    const normalizedSystemRole = isAiDepartment && formSystemRole !== 'AI_ENGINEER'
-      ? 'EMPLOYEE'
-      : formSystemRole;
+    const normalizedSystemRole = isAiDepartment ? 'EMPLOYEE' : formSystemRole;
     const normalizedLevel = isAiDepartment && formLevel === 'Team Leader' ? 'Senior' : formLevel;
     setIsSavingEmployee(true);
     setAccountFeedback(null);
@@ -334,9 +332,7 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
 
   const roleOptions = formSystemRole === 'HEAD_TECHNICAL'
     ? ['Head Of Technical']
-    : formSystemRole === 'AI_ENGINEER'
-      ? ['AI Engineer']
-      : getRoleOptions(formDeptId);
+    : getRoleOptions(formDeptId);
 
   return (
     <div className="view-shell">
@@ -865,14 +861,12 @@ export const EmployeesManagementView: React.FC<EmployeesManagementViewProps> = (
                       const nextRole = e.target.value as SystemRole;
                       setFormSystemRole(nextRole);
                       if (nextRole === 'HEAD_TECHNICAL') setFormRole('Head Of Technical');
-                      if (nextRole === 'AI_ENGINEER') setFormRole('AI Engineer');
                       if (nextRole === 'TEAM_LEADER') setFormLevel('Team Leader');
                       if (nextRole === 'EMPLOYEE' && formLevel === 'Team Leader') setFormLevel('Mid');
                     }}
                     className="w-full rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-white focus:outline-none"
                   >
                     <option value="EMPLOYEE">Employee / Agent</option>
-                    {canAdministerAccounts && formDeptId === 'dept-ai' && <option value="AI_ENGINEER">AI Engineer</option>}
                     {formDeptId !== 'dept-ai' && <option value="TEAM_LEADER">Team Leader</option>}
                     {canAdministerAccounts && <option value="HEAD_TECHNICAL">Head Of Technical</option>}
                     {canAdministerAccounts && <option value="HR">HR</option>}

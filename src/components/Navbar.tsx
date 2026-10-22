@@ -40,8 +40,6 @@ export const Navbar: React.FC = () => {
         return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
       case 'HEAD_TECHNICAL':
         return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
-      case 'AI_ENGINEER':
-        return 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
       case 'TEAM_LEADER':
         return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
       default:
@@ -59,7 +57,6 @@ export const Navbar: React.FC = () => {
     if (['ADMIN', 'HR'].includes(currentUser.systemRole)) return '/admin';
     if (currentUser.systemRole === 'CEO') return '/ceo';
     if (currentUser.systemRole === 'HEAD_TECHNICAL') return '/head-technical';
-    if (currentUser.systemRole === 'AI_ENGINEER') return '/ai-engineer';
     if (currentUser.systemRole === 'TEAM_LEADER') return '/team-leader';
     return '/employee';
   };

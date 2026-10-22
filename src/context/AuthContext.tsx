@@ -56,7 +56,6 @@ const SYSTEM_ROLES: SystemRole[] = [
   'CEO',
   'TEAM_LEADER',
   'HEAD_TECHNICAL',
-  'AI_ENGINEER',
   'EMPLOYEE',
 ];
 const EMPLOYEE_LEVELS: EmployeeLevel[] = ['Junior', 'Mid', 'Senior', 'Team Leader'];

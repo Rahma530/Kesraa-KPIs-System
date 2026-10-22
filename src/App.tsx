@@ -255,7 +255,6 @@ const RootRedirector: React.FC = () => {
   if (['ADMIN', 'HR'].includes(currentUser.systemRole)) return <Navigate to="/admin/dashboard" replace />;
   if (currentUser.systemRole === 'CEO') return <Navigate to="/ceo/dashboard" replace />;
   if (currentUser.systemRole === 'HEAD_TECHNICAL') return <Navigate to="/head-technical/dashboard" replace />;
-  if (currentUser.systemRole === 'AI_ENGINEER') return <Navigate to="/ai-engineer/dashboard" replace />;
   if (currentUser.systemRole === 'TEAM_LEADER') return <Navigate to="/team-leader/my-team" replace />;
   return <Navigate to="/employee/evaluations" replace />;
 };
@@ -356,21 +355,6 @@ const AppRoutes: React.FC = () => {
             element={(
               <CapabilityRoute capability="VIEW_AUDIT_LOGS">
                 <RouteWrapper component={AuditLogsView} />
-              </CapabilityRoute>
-            )}
-          />
-        </Route>
-
-        {/* AI Engineer uses the technical-review workspace without receiving ADMIN. */}
-        <Route path="/ai-engineer">
-          <Route path="dashboard" element={<RouteWrapper component={HeadTechnicalDashboard} />} />
-          <Route path="analytics" element={<RouteWrapper component={DashboardView} />} />
-          <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
-          <Route
-            path="employees"
-            element={(
-              <CapabilityRoute capability="MANAGE_EMPLOYEES">
-                <RouteWrapper component={EmployeesManagementView} />
               </CapabilityRoute>
             )}
           />

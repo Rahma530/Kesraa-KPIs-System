@@ -32,7 +32,7 @@ having count(*) > 1;
 select system_role, count(*) as employee_count
 from public.employees
 where system_role is null
-   or system_role not in ('ADMIN', 'HR', 'CEO', 'TEAM_LEADER', 'HEAD_TECHNICAL', 'AI_ENGINEER', 'EMPLOYEE')
+   or system_role not in ('ADMIN', 'HR', 'CEO', 'TEAM_LEADER', 'HEAD_TECHNICAL', 'EMPLOYEE')
 group by system_role;
 
 select level, count(*) as employee_count

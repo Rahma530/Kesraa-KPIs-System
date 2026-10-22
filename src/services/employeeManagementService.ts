@@ -208,7 +208,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const LEVELS: readonly EmployeeLevel[] = ['Junior', 'Mid', 'Senior', 'Team Leader'];
 const ROLES: readonly SystemRole[] = [
-  'ADMIN', 'HR', 'CEO', 'TEAM_LEADER', 'HEAD_TECHNICAL', 'AI_ENGINEER', 'EMPLOYEE',
+  'ADMIN', 'HR', 'CEO', 'TEAM_LEADER', 'HEAD_TECHNICAL', 'EMPLOYEE',
 ];
 const isValidDate = (value: string): boolean => {
   if (!DATE_PATTERN.test(value)) return false;

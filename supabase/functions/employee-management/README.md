@@ -4,7 +4,9 @@ This function is the sole browser-facing persistence boundary for Employee Manag
 It requires a valid JWT and resolves the caller from `public.employees` using
 `auth_user_id`. The caller must be employment-active (or not yet classified), have
 `account_enabled = true`, and have `MANAGE_EMPLOYEES` through `ADMIN`, `HR`,
-`HEAD_TECHNICAL`, `AI_ENGINEER`, or server-managed `ADMIN` app metadata.
+`HEAD_TECHNICAL`, or server-managed `ADMIN` app metadata. (`AI_ENGINEER` was
+removed as a system_role entirely on 2026-10-22 -- it is a job-title label
+only now, never a permission tier.)
 
 Supported actions:
 

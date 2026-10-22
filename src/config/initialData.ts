@@ -1805,7 +1805,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     level: 'Mid',
     startDate: '2024-01-01',
     isActive: true,
-    systemRole: 'AI_ENGINEER',
+    systemRole: 'EMPLOYEE',
     phone: '+20 10 00000302',
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',

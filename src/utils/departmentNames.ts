@@ -62,9 +62,6 @@ export const getStandardRole = (
   level: Employee['level'],
   systemRole?: Employee['systemRole']
 ): string => {
-  if (systemRole === 'AI_ENGINEER') {
-    return 'AI Engineer';
-  }
   if (
     systemRole === 'HEAD_TECHNICAL' ||
     /head\s*(of)?\s*technical|creative director/i.test(currentRole)
@@ -93,6 +90,11 @@ export const getStandardRole = (
   }
 };
 
+// AI & Automation (dept-ai) has no elevated role of its own: every employee
+// there is flattened to EMPLOYEE / at most Senior, with no team-leader
+// linkage. This used to except anyone flagged 'AI_ENGINEER' -- that
+// exception is removed now that AI_ENGINEER no longer exists as a
+// permission tier (it is a job title only, handled by getStandardRole).
 export const normalizeEmployeeRole = (employee: Employee): Employee => {
   const isAiEmployee = employee.departmentId === 'dept-ai';
   return {
@@ -103,7 +105,7 @@ export const normalizeEmployeeRole = (employee: Employee): Employee => {
       employee.level,
       employee.systemRole
     ),
-    ...(isAiEmployee && employee.systemRole !== 'AI_ENGINEER'
+    ...(isAiEmployee
       ? {
           level: employee.level === 'Team Leader' ? ('Senior' as const) : employee.level,
           systemRole: 'EMPLOYEE' as const,

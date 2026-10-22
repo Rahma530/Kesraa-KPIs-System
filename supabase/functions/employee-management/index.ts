@@ -6,10 +6,13 @@ import {
 } from './rosterAuthorization.ts';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
-const MANAGER_ROLES = new Set(['ADMIN', 'HR', 'HEAD_TECHNICAL', 'AI_ENGINEER']);
-const PRIVILEGED_ROLES = new Set(['ADMIN', 'HR', 'CEO', 'HEAD_TECHNICAL', 'AI_ENGINEER']);
+// AI_ENGINEER removed entirely (2026-10-22 business decision): it was never
+// a real job title distinct from "Employee in the AI department" and is now
+// only a job-title label (handled client-side), never a system_role value.
+const MANAGER_ROLES = new Set(['ADMIN', 'HR', 'HEAD_TECHNICAL']);
+const PRIVILEGED_ROLES = new Set(['ADMIN', 'HR', 'CEO', 'HEAD_TECHNICAL']);
 const SYSTEM_ROLES = new Set([
-  'ADMIN', 'HR', 'CEO', 'TEAM_LEADER', 'HEAD_TECHNICAL', 'AI_ENGINEER', 'EMPLOYEE',
+  'ADMIN', 'HR', 'CEO', 'TEAM_LEADER', 'HEAD_TECHNICAL', 'EMPLOYEE',
 ]);
 const EMPLOYEE_LEVELS = new Set(['Junior', 'Mid', 'Senior', 'Team Leader']);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

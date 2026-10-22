@@ -43,7 +43,8 @@ It is completely separate from **Agency-Management-System** (different repo, dat
 
 - `systemRole` = business role only.
 - Sensitive permissions (including ADMIN) come from Supabase Auth `app_metadata` — never from localStorage or client-controlled state.
-- AI_ENGINEER has the same centralized capabilities as HEAD_TECHNICAL but is **not** ADMIN.
+- Administrator authority (`isAccountAdministrator`) comes exclusively from Auth `app_metadata.additional_permissions` containing `ADMIN` — never from `employees.system_role`, even for ADMIN/CEO rows. A CEO who needs full control is granted this the same way as any other administrator: via `app_metadata`, not by code.
+- `AI_ENGINEER` was **removed entirely** as a `system_role` value (2026-10-22). It is a job-title label only now (shown for `dept-ai` employees), never a permission tier — same as "Media Buyer" or any other job title. Valid `system_role` values: `ADMIN`, `HR`, `CEO`, `TEAM_LEADER`, `HEAD_TECHNICAL`, `EMPLOYEE`.
 - `invite-employee` Edge Function is server-side, `verify_jwt=true`, deployed as version 6. Redirect: `https://system.kesraa.com/auth/setup-password`.
 
 ## Employees (only these 7 need accounts)
@@ -52,7 +53,7 @@ It is completely separate from **Agency-Management-System** (different repo, dat
 |---|---|---|---|
 | Reda Fathy | CEO / ADMIN | `emp-reda` | `Redaf3941@gmail.com` |
 | Toqa Osama | HEAD_TECHNICAL + ADMIN | `emp-toqa` | `headtechnical@kesraa.com` |
-| Rahma Ehab | AI_ENGINEER | `emp-rahma-ai` | `ai.specialist@kesraa.com` |
+| Rahma Ehab | EMPLOYEE (job title: AI Engineer, dept-ai) | `emp-rahma-ai` | `ai.specialist@kesraa.com` |
 | Shahd Mohamed | TEAM_LEADER (AM) | `emp-shahd` | `shahd.mohamed.kesra@gmail.com` |
 | Mohamed Abo AlAtta | TEAM_LEADER (Media Buying) | `emp-aboalatta` | `medialeader@kesraa.com` |
 | Esraa Waleed | TEAM_LEADER (SEO) | `emp-esraa` | `esraa.seo.kesra@gmail.com` |
