@@ -332,6 +332,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser) return false;
     if (hasCapability('VIEW_ALL_EVALUATIONS')) return true;
     if (currentUser.systemRole === 'TEAM_LEADER') {
+      // A team leader never sees their own evaluation — that is management's call.
+      if (evalItem.employeeId === currentUser.id) return false;
       return currentUser.departmentId === evalItem.departmentId;
     }
     return false;

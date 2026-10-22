@@ -43,12 +43,12 @@ export const canEditEvaluation = (
     isTechnicalReviewerEmployee(user) ||
     (user?.isActive !== false &&
       user?.systemRole === 'TEAM_LEADER' &&
+      evaluation?.employeeId !== user.id &&
       (!evaluation ||
         evaluation.status === 'DRAFT' ||
         (evaluation.status === 'UNDER_REVIEW' &&
           evaluation.reopenedByRole === 'TEAM_LEADER' &&
-          evaluation.departmentId === user.departmentId &&
-          evaluation.employeeId !== user.id)))
+          evaluation.departmentId === user.departmentId)))
   );
 
 export const canReopenEvaluation = (

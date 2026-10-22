@@ -48,9 +48,13 @@ export const hasAdditionalPermission = (
   permission: AdditionalSystemPermission
 ): boolean => employee?.additionalPermissions?.includes(permission) === true;
 
+// Administrator authority comes exclusively from Supabase Auth app_metadata
+// (additional_permissions containing 'ADMIN'), never from employees.system_role.
+// This keeps every "is this user an administrator" check consistent with the
+// Production audit_logs_select_admin policy, which recognizes only app_metadata.
 export const isAccountAdministrator = (
   employee: Employee | null | undefined
-): boolean => employee?.systemRole === 'ADMIN' || hasAdditionalPermission(employee, 'ADMIN');
+): boolean => hasAdditionalPermission(employee, 'ADMIN');
 
 export const hasAuthorizationCapability = (
   employee: Employee | null | undefined,

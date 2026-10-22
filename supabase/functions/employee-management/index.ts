@@ -152,7 +152,9 @@ Deno.serve(async (request) => {
   const extraPermissions = Array.isArray(authData.user.app_metadata?.additional_permissions)
     ? authData.user.app_metadata.additional_permissions
     : [];
-  const isAdministrator = caller?.system_role === 'ADMIN' || extraPermissions.includes('ADMIN');
+  // Administrator authority comes exclusively from Auth app_metadata, never from
+  // employees.system_role, to stay consistent with Production's audit_logs RLS.
+  const isAdministrator = extraPermissions.includes('ADMIN');
   const canManageEmployees = Boolean(caller) && (
     MANAGER_ROLES.has(caller.system_role) || extraPermissions.includes('ADMIN')
   );
