@@ -15,12 +15,14 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
   onStartEvaluation,
   onViewEvaluation,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, canManageEmployees } = useAuth();
   const { employees, evaluations, selectedQuarter, selectedYear, saveEmployee } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   
   // Add Employee Modal State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSavingEmployee, setIsSavingEmployee] = useState(false);
+  const [employeeSaveError, setEmployeeSaveError] = useState('');
   const [newEmp, setNewEmp] = useState({
     name: '',
     email: '',
@@ -45,9 +47,9 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
     emp.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleAddEmployee = (e: React.FormEvent) => {
+  const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmp.name || !newEmp.email || !newEmp.role) return;
+    if (!canManageEmployees() || !newEmp.name || !newEmp.email || !newEmp.role || isSavingEmployee) return;
 
     const employeeToSave: Employee = {
       id: 'emp-' + Date.now().toString(),
@@ -66,9 +68,17 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    saveEmployee(employeeToSave);
-    setShowAddModal(false);
-    setNewEmp({ name: '', email: '', role: '', level: 'Junior' });
+    setIsSavingEmployee(true);
+    setEmployeeSaveError('');
+    try {
+      await saveEmployee(employeeToSave);
+      setShowAddModal(false);
+      setNewEmp({ name: '', email: '', role: '', level: 'Junior' });
+    } catch (error) {
+      setEmployeeSaveError(error instanceof Error ? error.message : 'The employee could not be saved.');
+    } finally {
+      setIsSavingEmployee(false);
+    }
   };
 
   return (
@@ -129,13 +139,15 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full sm:w-64 rounded-xl border border-white/10 bg-black/40 py-2 px-4 text-xs text-white focus:border-teal-500/50 focus:outline-none"
           />
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-teal-600 hover:bg-teal-500 px-4 py-2 text-xs font-semibold text-white transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add Employee
-          </button>
+          {canManageEmployees() && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 rounded-xl bg-teal-600 hover:bg-teal-500 px-4 py-2 text-xs font-semibold text-white transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add Employee
+            </button>
+          )}
         </div>
         
         <div className="divide-y divide-white/5">
@@ -195,7 +207,7 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
       </div>
 
       {/* Add Employee Modal */}
-      {showAddModal && (
+      {showAddModal && canManageEmployees() && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 ">
           <div className="w-full max-w-md bg-neutral-900 border border-white/10 rounded-3xl shadow-2xl p-6 relative overflow-hidden">
             <button
@@ -207,6 +219,11 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
             <h3 className="text-lg font-bold text-white mb-6">Add Employee</h3>
             
             <form onSubmit={handleAddEmployee} className="space-y-4">
+              {employeeSaveError && (
+                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                  {employeeSaveError}
+                </p>
+              )}
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Employee Name</label>
                 <input
@@ -271,9 +288,10 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-semibold py-2.5 transition-colors"
+                  disabled={isSavingEmployee}
+                  className="w-full rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-semibold py-2.5 transition-colors disabled:cursor-wait disabled:opacity-50"
                 >
-                  Add Employee
+                  {isSavingEmployee ? 'Saving...' : 'Add Employee'}
                 </button>
               </div>
             </form>

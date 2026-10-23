@@ -12,7 +12,8 @@ Required server-side configuration:
 
 The caller must have a valid Supabase session mapped to an enabled `ADMIN` employee,
 or have the server-managed `ADMIN` additional permission in Supabase Auth `app_metadata`.
-The target employee must already have `account_enabled = true`. The request body is
+The target employee must not be employment-inactive and must already have
+`account_enabled = true`. The request body is
 `{ "employeeId": "..." }`; the function reads the email from `public.employees` and
 does not accept permissions or an email from the browser.
 
@@ -22,6 +23,13 @@ unlinked Auth user, the function returns a recovery action link instead of creat
 duplicate account. The action link verifies with Supabase Auth first, then redirects
 to `INVITE_REDIRECT_URL` so the employee can set a password.
 
-The function returns the action link only to the authenticated enabled administrator
-who invoked it. The administrator must copy and deliver it manually. Already-linked
-employees are returned unchanged and do not receive a replacement link.
+The function returns the action link and an `authLinked` boolean, never the Auth user
+UUID, and only to the authenticated enabled administrator who invoked it. The
+administrator must copy and deliver it manually. A linked employee receives a recovery
+link after the function verifies that the linked Auth email matches the employee email.
+If another request completes the link concurrently, the function returns a safe
+`alreadyLinked` response without an Auth identifier or a second setup link.
+If a newly created Auth user cannot be linked, the function does not automatically
+delete that Auth user: Auth and Postgres cannot share a transaction, and compensating
+deletion could remove an identity linked by a concurrent request. A later attempt will
+discover the existing email and safely retry the verified link workflow.

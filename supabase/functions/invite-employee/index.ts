@@ -67,7 +67,7 @@ Deno.serve(async (request) => {
   });
   const { data: callerProfile, error: callerProfileError } = await adminClient
     .from('employees')
-    .select('id,system_role,account_enabled')
+    .select('id,system_role,account_enabled,employment_active')
     .eq('auth_user_id', callerAuth.user.id)
     .maybeSingle();
   if (callerProfileError) {
@@ -78,7 +78,12 @@ Deno.serve(async (request) => {
     : [];
   const callerCanAdministerAccounts = callerProfile?.system_role === 'ADMIN' ||
     callerAdditionalPermissions.includes('ADMIN');
-  if (!callerProfile || callerProfile.account_enabled !== true || !callerCanAdministerAccounts) {
+  if (
+    !callerProfile ||
+    callerProfile.account_enabled !== true ||
+    callerProfile.employment_active === false ||
+    !callerCanAdministerAccounts
+  ) {
     return response(403, { error: 'Only an enabled administrator can invite employee accounts.' }, allowedOrigin);
   }
 
@@ -94,7 +99,7 @@ Deno.serve(async (request) => {
   }
   const { data: employee, error: employeeError } = await adminClient
     .from('employees')
-    .select('id,email,auth_user_id,account_enabled')
+    .select('id,email,auth_user_id,account_enabled,employment_active,employee_version')
     .eq('id', employeeId)
     .maybeSingle();
   if (employeeError) {
@@ -105,6 +110,9 @@ Deno.serve(async (request) => {
   }
   if (employee.account_enabled !== true) {
     return response(409, { error: 'Enable the employee account before generating a setup link.' }, allowedOrigin);
+  }
+  if (employee.employment_active === false) {
+    return response(409, { error: 'Reactivate the employee before generating a setup link.' }, allowedOrigin);
   }
   if (typeof employee.email !== 'string' || !employee.email.includes('@')) {
     return response(422, { error: 'The employee does not have a valid email address.' }, allowedOrigin);
@@ -129,13 +137,13 @@ Deno.serve(async (request) => {
       });
     if (recoveryLinkError || !recoveryLink.properties?.action_link) {
       return response(409, {
-        error: recoveryLinkError?.message || 'Could not generate a setup link for the linked Auth account.',
+        error: 'Could not generate a setup link for the linked Auth account.',
       }, allowedOrigin);
     }
 
     return response(200, {
       employeeId: employee.id,
-      authUserId: linkedAuthUser.user.id,
+      authLinked: true,
       alreadyLinked: true,
       invitationLink: recoveryLink.properties.action_link,
       delivery: 'manual',
@@ -170,7 +178,7 @@ Deno.serve(async (request) => {
     if (existingLink?.id === employee.id) {
       return response(200, {
         employeeId: employee.id,
-        authUserId: existingAuthUser.id,
+        authLinked: true,
         alreadyLinked: true,
         invitationLink: null,
         delivery: 'manual',
@@ -180,7 +188,6 @@ Deno.serve(async (request) => {
 
   let authUser = existingAuthUser;
   let actionLink = '';
-  let createdAuthUser = false;
 
   if (existingAuthUser) {
     const { data: recoveryLink, error: recoveryLinkError } = await adminClient.auth.admin.generateLink({
@@ -190,7 +197,7 @@ Deno.serve(async (request) => {
     });
     if (recoveryLinkError || !recoveryLink.properties?.action_link) {
       return response(409, {
-        error: recoveryLinkError?.message || 'Could not generate a setup link for the existing Auth account.',
+        error: 'Could not generate a setup link for the existing Auth account.',
       }, allowedOrigin);
     }
     authUser = recoveryLink.user || existingAuthUser;
@@ -207,19 +214,17 @@ Deno.serve(async (request) => {
       !invitation.properties?.action_link
     ) {
       return response(409, {
-        error: invitationError?.message || 'Could not create the Auth user and setup link.',
+        error: 'Could not create the Auth user and setup link.',
       }, allowedOrigin);
     }
     authUser = invitation.user;
     actionLink = invitation.properties.action_link;
-    createdAuthUser = true;
 
     const { error: permissionError } = await adminClient.auth.admin.updateUserById(
       authUser.id,
       { app_metadata: { additional_permissions: [] } },
     );
     if (permissionError) {
-      await adminClient.auth.admin.deleteUser(authUser.id);
       return response(409, { error: 'The Auth account permissions could not be initialized.' }, allowedOrigin);
     }
   }
@@ -230,22 +235,38 @@ Deno.serve(async (request) => {
 
   const { data: linkedEmployee, error: linkError } = await adminClient
     .from('employees')
-    .update({ auth_user_id: authUser.id })
+    .update({
+      auth_user_id: authUser.id,
+      employee_version: Number(employee.employee_version || 1) + 1,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', employee.id)
     .is('auth_user_id', null)
-    .select('id,auth_user_id')
+    .eq('employee_version', Number(employee.employee_version || 1))
+    .select('id')
     .maybeSingle();
 
   if (linkError || !linkedEmployee) {
-    if (createdAuthUser) {
-      await adminClient.auth.admin.deleteUser(authUser.id);
+    const { data: racedEmployee, error: racedEmployeeError } = await adminClient
+      .from('employees')
+      .select('id,auth_user_id')
+      .eq('id', employee.id)
+      .maybeSingle();
+    if (!racedEmployeeError && racedEmployee?.auth_user_id === authUser.id) {
+      return response(200, {
+        employeeId: employee.id,
+        authLinked: true,
+        alreadyLinked: true,
+        invitationLink: null,
+        delivery: 'manual',
+      }, allowedOrigin);
     }
     return response(409, { error: 'The Auth account could not be linked to the employee profile.' }, allowedOrigin);
   }
 
   return response(201, {
     employeeId: linkedEmployee.id,
-    authUserId: linkedEmployee.auth_user_id,
+    authLinked: true,
     alreadyLinked: false,
     invitationLink: actionLink,
     delivery: 'manual',

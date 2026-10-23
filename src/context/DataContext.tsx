@@ -11,6 +11,7 @@ import { StorageService } from '../services/storageService';
 import { AuditService } from '../services/auditService';
 import { useAuth } from './AuthContext';
 import { logActivity } from '../utils/auditLogger';
+import { EmployeeManagementService } from '../services/employeeManagementService';
 
 export type SettingsSource = 'database' | 'cache' | 'defaults';
 export type SaveSettingsResult = { status: 'saved' } | { status: 'conflict' };
@@ -28,13 +29,12 @@ export interface DataContextType {
   setSelectedYear: (y: number) => void;
   saveEvaluation: (evaluation: Evaluation) => Promise<Evaluation>;
   saveSettings: (settings: SystemSettings) => Promise<SaveSettingsResult>;
-  saveEmployee: (emp: Employee) => void;
-  deleteEmployee: (id: string) => void;
+  saveEmployee: (emp: Employee) => Promise<Employee>;
   saveDepartments: (depts: Department[]) => void;
+  refreshEmployees: () => Promise<Employee[]>;
   refreshData: () => Promise<Evaluation[]>;
   exportBackup: () => string;
   restoreBackup: (jsonStr: string) => { success: boolean; message: string };
-  importEmployeesCSV: (csv: string) => { importedCount: number; errors: string[] };
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -53,18 +53,63 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedQuarter, setSelectedQuarter] = useState<EvaluationQuarter | ''>('');
   const [selectedYear, setSelectedYear] = useState<number>(settings.activeYear || 2026);
 
-  const refreshLocalData = () => {
-    setDepartments(StorageService.getDepartments());
-    setEmployees(StorageService.getEmployees());
+  const refreshLocalAuxiliaryData = useCallback(() => {
     setAuditLogs(AuditService.getLogs());
-  };
+  }, []);
 
-  const refreshData = async () => {
-    refreshLocalData();
-    const remoteEvaluations = await StorageService.getEvaluationsFromSupabase();
+  const refreshEmployees = useCallback(async (): Promise<Employee[]> => {
+    if (!currentUser?.id) {
+      setEmployees([]);
+      setDepartments([]);
+      return [];
+    }
+
+    const roster = await EmployeeManagementService.listEvaluationRoster();
+    const authoritativeDepartments: Department[] = roster.departments.map((department) => ({
+      id: department.id,
+      name: department.name,
+      code: department.id,
+      description: '',
+      isActive: true,
+    }));
+    const authoritativeEmployees: Employee[] = roster.employees.map((employee) => ({
+      id: employee.id,
+      name: employee.name,
+      // Evaluation consumers do not need employee contact or account-link data. The
+      // server deliberately omits those fields from this role-filtered roster.
+      email: '',
+      departmentId: employee.departmentId,
+      departmentName: employee.departmentName,
+      role: employee.jobTitle,
+      level: employee.level,
+      startDate: employee.startDate,
+      isActive: true,
+      isHeadTechnical: employee.systemRole === 'HEAD_TECHNICAL',
+      systemRole: employee.systemRole,
+      createdAt: employee.startDate,
+      updatedAt: employee.startDate,
+    }));
+    setDepartments(authoritativeDepartments);
+    setEmployees(authoritativeEmployees);
+    return authoritativeEmployees;
+  }, [currentUser?.id]);
+
+  const refreshData = useCallback(async () => {
+    if (!currentUser?.id) {
+      setEmployees([]);
+      setDepartments([]);
+      setEvaluations([]);
+      refreshLocalAuxiliaryData();
+      return [];
+    }
+    const [, remoteEvaluations] = await Promise.all([
+      refreshEmployees(),
+      StorageService.getEvaluationsFromSupabase(),
+    ]);
     setEvaluations(remoteEvaluations);
+    refreshLocalAuxiliaryData();
     return remoteEvaluations;
-  };
+  }, [currentUser?.id, refreshEmployees, refreshLocalAuxiliaryData]);
 
   // Shared settings come from public.settings; keep the cached/default copy if that fails.
   const loadSettings = useCallback(async () => {
@@ -82,11 +127,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     StorageService.initialize();
+    refreshLocalAuxiliaryData();
+  }, [refreshLocalAuxiliaryData]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setEmployees([]);
+      setDepartments([]);
+      setEvaluations([]);
+      return;
+    }
     refreshData().catch((error) => {
-      console.error('Failed to load evaluations from Supabase:', error);
+      console.error('Failed to load authoritative Supabase data:', error);
+      setEmployees([]);
+      setDepartments([]);
       setEvaluations([]);
     });
-  }, []);
+  }, [currentUser?.id, refreshData]);
 
   const saveEvaluation = async (evaluation: Evaluation): Promise<Evaluation> => {
     const actorId = currentUser?.id || 'system';
@@ -135,55 +192,51 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     await loadSettings();
-    refreshLocalData();
+    refreshLocalAuxiliaryData();
     return { status: 'saved' };
   };
 
-  const saveEmployee = (emp: Employee) => {
-    const actorId = currentUser?.id || 'system';
-    const actorName = currentUser?.name || 'System User';
-    const actorRole = currentUser?.systemRole || 'ADMIN';
-
-    StorageService.saveEmployee(emp, actorId, actorName, actorRole);
-    
-    // Log to Supabase
-    logActivity({
-      userRole: actorRole,
-      userEmail: currentUser?.email || actorName,
-      actionType: 'SAVE_EMPLOYEE',
-      details: `Saved/Updated employee: ${emp.name} (${emp.email})`
+  const saveEmployee = async (emp: Employee): Promise<Employee> => {
+    const result = await EmployeeManagementService.save({
+      name: emp.name,
+      email: emp.email,
+      phone: emp.phone,
+      departmentId: emp.departmentId,
+      jobTitle: emp.role,
+      level: emp.level,
+      systemRole: emp.systemRole,
+      startDate: emp.startDate,
     });
-
-    refreshLocalData();
-  };
-
-  const deleteEmployee = (id: string) => {
-    const actorId = currentUser?.id || 'system';
-    const actorName = currentUser?.name || 'System User';
-    const actorRole = currentUser?.systemRole || 'ADMIN';
-
-    const empName = employees.find(e => e.id === id)?.name || id;
-
-    StorageService.deleteEmployee(id, actorId, actorName, actorRole);
-    
-    // Log to Supabase
-    logActivity({
-      userRole: actorRole,
-      userEmail: currentUser?.email || actorName,
-      actionType: 'DELETE_EMPLOYEE',
-      details: `Deleted employee: ${empName}`
-    });
-
-    refreshLocalData();
+    const saved = result.employee;
+    const mapped: Employee = {
+      id: saved.id,
+      accountEnabled: saved.accountEnabled,
+      name: saved.name,
+      email: saved.email,
+      phone: saved.phone || undefined,
+      departmentId: saved.departmentId,
+      departmentName: saved.departmentName,
+      role: saved.jobTitle,
+      level: saved.level,
+      startDate: saved.startDate,
+      isActive: saved.employmentActive !== false,
+      isHeadTechnical: saved.systemRole === 'HEAD_TECHNICAL',
+      systemRole: saved.systemRole,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    };
+    const refreshedEmployees = await refreshEmployees();
+    return refreshedEmployees.find((employee) => employee.id === mapped.id) || mapped;
   };
 
   const saveDepartments = (depts: Department[]) => {
     StorageService.saveDepartments(depts);
-    refreshLocalData();
+    setDepartments(depts);
+    refreshLocalAuxiliaryData();
   };
 
   const exportBackup = () => {
-    return StorageService.exportFullBackup();
+    return StorageService.exportFullBackup(employees);
   };
 
   const restoreBackup = (jsonStr: string) => {
@@ -192,17 +245,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const actorRole = currentUser?.systemRole || 'ADMIN';
 
     const res = StorageService.restoreBackup(jsonStr, actorId, actorName, actorRole);
-    refreshLocalData();
-    return res;
-  };
-
-  const importEmployeesCSV = (csv: string) => {
-    const actorId = currentUser?.id || 'system';
-    const actorName = currentUser?.name || 'System User';
-    const actorRole = currentUser?.systemRole || 'ADMIN';
-
-    const res = StorageService.importEmployeesFromCSV(csv, actorId, actorName, actorRole);
-    refreshLocalData();
+    refreshLocalAuxiliaryData();
+    if (res.success) void refreshData();
     return res;
   };
 
@@ -222,12 +266,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         saveEvaluation,
         saveSettings,
         saveEmployee,
-        deleteEmployee,
         saveDepartments,
+        refreshEmployees,
         refreshData,
         exportBackup,
         restoreBackup,
-        importEmployeesCSV,
       }}
     >
       {children}
