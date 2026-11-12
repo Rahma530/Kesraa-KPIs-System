@@ -39,7 +39,19 @@ const ROLE_CAPABILITIES: Record<SystemRole, readonly AuthorizationCapability[]> 
     'APPROVE_EVALUATIONS', 'EVALUATE_ALL_EMPLOYEES', 'VIEW_ALL_EVALUATIONS',
     'VIEW_KPI_WEIGHTS', 'VIEW_EXECUTIVE_DASHBOARD', 'VIEW_AUDIT_LOGS',
   ],
-  HEAD_TECHNICAL: ['MANAGE_EMPLOYEES', 'EVALUATE_ALL_EMPLOYEES', 'VIEW_ALL_EVALUATIONS'],
+  // VIEW_EXECUTIVE_DASHBOARD, VIEW_AUDIT_LOGS, VIEW_KPI_WEIGHTS, MANAGE_SETTINGS and
+  // PUBLISH_EVALUATIONS are granted to the HEAD_TECHNICAL job title itself, the same
+  // carve-out as the CEO above and for the same reason: she already held all of these
+  // before today's Sales/Technical split (her ADMIN grant covered them), and nothing
+  // about separating Sales into its own module should take anything away from her —
+  // only her day-to-day evaluation authority (the four below) becomes Technical-only.
+  // Granted at the systemRole level (not only through ADMIN) so a department scope on
+  // her ADMIN grant can never cut these off.
+  HEAD_TECHNICAL: [
+    'MANAGE_SETTINGS', 'PUBLISH_EVALUATIONS',
+    'MANAGE_EMPLOYEES', 'APPROVE_EVALUATIONS', 'EVALUATE_ALL_EMPLOYEES', 'VIEW_ALL_EVALUATIONS',
+    'VIEW_KPI_WEIGHTS', 'VIEW_EXECUTIVE_DASHBOARD', 'VIEW_AUDIT_LOGS',
+  ],
   TEAM_LEADER: [],
   EMPLOYEE: [],
 };
