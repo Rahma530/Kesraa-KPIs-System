@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AuthChangeEvent, User } from '@supabase/supabase-js';
-import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
+import { AdditionalPermissionScope, AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
 import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
 import { isEvaluableEmployee, isWithinTeamLeaderScope } from '../utils/departmentNames';
 import { StorageService } from '../services/storageService';
@@ -91,6 +91,22 @@ const getAdditionalPermissions = (user: User): AdditionalSystemPermission[] => {
   );
 };
 
+// Reads the department scope for an ADMIN grant, the same way getAdditionalPermissions
+// reads the grant itself — from Auth app_metadata, never from the employees table or
+// any client-controlled state, matching the existing "ADMIN comes exclusively from
+// app_metadata" rule. Absent or malformed metadata means "no scope", which
+// hasAuthorizationCapabilityForDepartment already treats as system-wide (today's
+// unrestricted behavior) — so an employee with nothing set here is unaffected.
+const getAdditionalPermissionScope = (user: User): AdditionalPermissionScope | undefined => {
+  const rawScope = user.app_metadata?.additional_permission_scope;
+  if (!rawScope || typeof rawScope !== 'object' || Array.isArray(rawScope)) return undefined;
+  const departmentIds = (rawScope as { departmentIds?: unknown }).departmentIds;
+  if (!Array.isArray(departmentIds) || departmentIds.length === 0) return undefined;
+  const validIds = departmentIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (validIds.length === 0) return undefined;
+  return { departmentIds: validIds };
+};
+
 const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
   const { data: profileData, error: profileError } = await supabase
     .from('employees')
@@ -136,6 +152,7 @@ const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
     id: profile.id,
     accountEnabled: true,
     additionalPermissions: getAdditionalPermissions(authUser),
+    additionalPermissionScope: getAdditionalPermissionScope(authUser),
     name: profile.name,
     email: profile.email,
     phone: profile.phone || undefined,
