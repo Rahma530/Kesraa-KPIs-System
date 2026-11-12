@@ -2199,26 +2199,34 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   // real people and none of this is written to Supabase; they exist purely so the
   // Sales module has data to run against while it is built and tested locally.
   {
-    // Department-scoped admin: sees and approves everything inside dept-sales only,
-    // the same capability set Head Technical has system-wide (see
-    // hasAuthorizationCapabilityForDepartment in authorization.ts).
-    id: 'emp-sales-admin-fake',
-    name: '[FAKE] Sales Department Admin',
-    email: 'fake.sales.admin@kesraa.local',
+    // Head Of Sales: the Sales Team Leader role itself carries full
+    // department-scoped authority over dept-sales (both the Sales track and
+    // the TeleSales track), the same capability set Head Technical has
+    // system-wide but limited to this department (see
+    // hasAuthorizationCapabilityForDepartment in authorization.ts). There is
+    // no separate standalone "admin" employee — the real Sales Team Leader
+    // is the admin.
+    id: 'emp-tl-sales-fake',
+    name: '[FAKE] Sales Team Leader',
+    email: 'fake.tl.sales@kesraa.local',
     departmentId: 'dept-sales',
     departmentName: 'Sales',
     role: 'Sales Team Leader',
     level: 'Team Leader',
-    startDate: '2025-01-01',
+    startDate: '2025-02-01',
     isActive: true,
     systemRole: 'TEAM_LEADER',
     additionalPermissions: ['ADMIN'],
     additionalPermissionScope: { departmentId: 'dept-sales' },
-    phone: '+20 10 00000901',
-    createdAt: '2025-01-01T00:00:00Z',
-    updatedAt: '2025-01-01T00:00:00Z',
+    phone: '+20 10 00000904',
+    createdAt: '2025-02-01T00:00:00Z',
+    updatedAt: '2025-02-01T00:00:00Z',
   },
   {
+    // Head Of TeleSales: a plain Team Leader with no ADMIN permission at
+    // all. Scoping down to "TeleSales employees only" (and not Sales-track
+    // employees) is handled purely by getSalesTrack/isWithinTeamLeaderScope
+    // in departmentNames.ts, not by any additional permission here.
     id: 'emp-tl-telesales-fake',
     name: '[FAKE] TeleSales Team Leader',
     email: 'fake.tl.telesales@kesraa.local',
@@ -2226,8 +2234,8 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     departmentName: 'Sales',
     role: 'TeleSales Team Leader',
     level: 'Team Leader',
-    teamLeaderId: 'emp-sales-admin-fake',
-    teamLeaderName: '[FAKE] Sales Department Admin',
+    teamLeaderId: 'emp-tl-sales-fake',
+    teamLeaderName: '[FAKE] Sales Team Leader',
     startDate: '2025-02-01',
     isActive: true,
     systemRole: 'TEAM_LEADER',
@@ -2251,23 +2259,6 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     phone: '+20 10 00000903',
     createdAt: '2025-03-01T00:00:00Z',
     updatedAt: '2025-03-01T00:00:00Z',
-  },
-  {
-    id: 'emp-tl-sales-fake',
-    name: '[FAKE] Sales Team Leader',
-    email: 'fake.tl.sales@kesraa.local',
-    departmentId: 'dept-sales',
-    departmentName: 'Sales',
-    role: 'Sales Team Leader',
-    level: 'Team Leader',
-    teamLeaderId: 'emp-sales-admin-fake',
-    teamLeaderName: '[FAKE] Sales Department Admin',
-    startDate: '2025-02-01',
-    isActive: true,
-    systemRole: 'TEAM_LEADER',
-    phone: '+20 10 00000904',
-    createdAt: '2025-02-01T00:00:00Z',
-    updatedAt: '2025-02-01T00:00:00Z',
   },
   {
     id: 'emp-sales-1-fake',

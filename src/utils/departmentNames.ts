@@ -34,6 +34,33 @@ export const normalizeEvaluationDepartment = (evaluation: Evaluation): Evaluatio
   departmentName: getEnglishDepartmentName(evaluation.departmentId, evaluation.departmentName),
 });
 
+export type SalesTrack = 'TeleSales' | 'Sales';
+
+// Which of the two Sales-department tracks a (normalized) role string belongs to, or
+// null outside dept-sales.
+export const getSalesTrack = (role: string): SalesTrack | null => {
+  if (/^tele\s*sales/i.test(role)) return 'TeleSales';
+  if (/^sales/i.test(role)) return 'Sales';
+  return null;
+};
+
+// Whether currentUser (a Team Leader, or a department-scoped admin) may manage/view
+// the given target employee or evaluation. Outside dept-sales this is exactly the
+// department match every Team Leader screen already used. Inside dept-sales it also
+// enforces the business's stated hierarchy: Head Of TeleSales (= TeleSales Team
+// Leader) only manages التيلي سيلز, while Head Of Sales (= Sales Team Leader) manages
+// the whole Sales department, both tracks — so a plain department match would
+// wrongly let the TeleSales lead manage Sales agents too.
+export const isWithinTeamLeaderScope = (
+  currentUser: Pick<Employee, 'departmentId' | 'role'>,
+  target: { departmentId: string; role: string }
+): boolean => {
+  if (target.departmentId !== currentUser.departmentId) return false;
+  if (currentUser.departmentId !== 'dept-sales') return true;
+  if (getSalesTrack(currentUser.role) === 'Sales') return true;
+  return getSalesTrack(currentUser.role) === getSalesTrack(target.role);
+};
+
 export const isEvaluableEmployee = (employee: Employee): boolean =>
   employee.departmentId !== MANAGERIAL_DEPARTMENT_ID &&
   !['ADMIN', 'HR', 'CEO'].includes(employee.systemRole);

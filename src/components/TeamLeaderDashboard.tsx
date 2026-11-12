@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { ARABIC_LEVELS, ARABIC_STATUSES } from '../locales/ar';
 import { Employee, EmployeeLevel, Evaluation } from '../types';
-import { getRoleOptions, getStandardRole } from '../utils/departmentNames';
+import { getRoleOptions, getStandardRole, isWithinTeamLeaderScope } from '../utils/departmentNames';
 
 interface TeamLeaderDashboardProps {
   onStartEvaluation: (employeeId: string) => void;
@@ -38,9 +38,12 @@ export const TeamLeaderDashboard: React.FC<TeamLeaderDashboardProps> = ({
     );
   }
 
-  // Get team members for this leader's department
+  // Get team members for this leader's department. isWithinTeamLeaderScope also
+  // narrows this to the TeleSales track only for a TeleSales Team Leader (Head Of
+  // TeleSales), while a Sales Team Leader (Head Of Sales) still sees the whole
+  // department, both tracks — see its comment in departmentNames.ts.
   const teamMembers = employees.filter(
-    (emp) => emp.departmentId === currentUser.departmentId && emp.id !== currentUser.id && emp.isActive
+    (emp) => isWithinTeamLeaderScope(currentUser, emp) && emp.id !== currentUser.id && emp.isActive
   );
 
   const filteredMembers = teamMembers.filter((emp) =>

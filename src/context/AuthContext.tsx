@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AuthChangeEvent, User } from '@supabase/supabase-js';
 import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
 import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
-import { isEvaluableEmployee } from '../utils/departmentNames';
+import { isEvaluableEmployee, isWithinTeamLeaderScope } from '../utils/departmentNames';
 import {
   AuthorizationCapability,
   hasAuthorizationCapability,
@@ -322,7 +322,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (currentUser.id === target.id) return false;
     if (hasCapability('EVALUATE_ALL_EMPLOYEES')) return true;
     if (currentUser.systemRole === 'TEAM_LEADER') {
-      return currentUser.departmentId === target.departmentId;
+      // isWithinTeamLeaderScope also narrows a TeleSales Team Leader (Head Of
+      // TeleSales) to التيلي سيلز only inside dept-sales; every other department
+      // keeps its plain department match, unchanged.
+      return isWithinTeamLeaderScope(currentUser, target);
     }
     return false;
   };
@@ -333,7 +336,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (currentUser.systemRole === 'TEAM_LEADER') {
       // A team leader never sees their own evaluation — that is management's call.
       if (evalItem.employeeId === currentUser.id) return false;
-      return currentUser.departmentId === evalItem.departmentId;
+      return isWithinTeamLeaderScope(currentUser, evalItem);
     }
     return false;
   };

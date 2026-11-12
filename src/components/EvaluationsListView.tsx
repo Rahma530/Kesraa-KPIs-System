@@ -18,6 +18,7 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { ARABIC_STATUSES, ARABIC_LEVELS, ARABIC_CLASSIFICATIONS } from '../locales/ar';
 import { canEditEvaluation } from './EvaluationFormModal';
+import { isWithinTeamLeaderScope } from '../utils/departmentNames';
 
 interface EvaluationsListViewProps {
   onSelectEvaluation: (evaluation: Evaluation) => void;
@@ -56,7 +57,7 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
     if (evaluation.quarter !== selectedQuarter || evaluation.year !== selectedYear) return false;
     if (currentUser?.systemRole === 'EMPLOYEE') return false;
     if (currentUser?.systemRole === 'TEAM_LEADER') {
-      if (evaluation.departmentId !== currentUser.departmentId && !isExecutiveOrAdmin()) return false;
+      if (!isWithinTeamLeaderScope(currentUser, evaluation) && !isExecutiveOrAdmin()) return false;
     }
     if (departmentFilter !== 'ALL' && evaluation.departmentId !== departmentFilter) return false;
     if (statusFilter !== 'ALL' && evaluation.status !== statusFilter) return false;
@@ -79,7 +80,7 @@ export const EvaluationsListView: React.FC<EvaluationsListViewProps> = ({
 
   const unevaluatedEmployees = employees.filter((emp) => {
     if (!emp.isActive) return false;
-    if (currentUser?.systemRole === 'TEAM_LEADER' && emp.departmentId !== currentUser.departmentId) {
+    if (currentUser?.systemRole === 'TEAM_LEADER' && !isWithinTeamLeaderScope(currentUser, emp)) {
       return false;
     }
     const hasEval = evaluations.some(
