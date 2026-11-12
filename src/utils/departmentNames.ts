@@ -10,6 +10,7 @@ const ENGLISH_DEPARTMENT_NAMES: Record<string, string> = {
   'dept-cr': 'Creative',
   'dept-ai': 'AI & Automation',
   'dept-mg': 'Managerial',
+  'dept-sales': 'Sales',
 };
 
 export const getEnglishDepartmentName = (departmentId: string, fallback = ''): string =>
@@ -51,6 +52,8 @@ export const getRoleOptions = (departmentId: string): string[] => {
       return ['AI Engineer'];
     case 'dept-seo':
       return ['SEO Team Leader', 'SEO Specialist', 'Web Developer', 'Content Creator'];
+    case 'dept-sales':
+      return ['TeleSales Team Leader', 'TeleSales Agent', 'Sales Team Leader', 'Sales Agent'];
     default:
       return [];
   }
@@ -85,6 +88,14 @@ export const getStandardRole = (
       return 'AI Engineer';
     case 'dept-seo':
       return isTeamLeader ? 'SEO Team Leader' : currentRole;
+    case 'dept-sales': {
+      // Two tracks inside one department (التيلي سيلز vs السيلز) — inferred from the
+      // current role text the same way dept-cr tells a Video Editor from a Graphic
+      // Designer above, since Employee has no separate "track" field of its own.
+      const isTeleSalesTrack = /tele\s*sales/i.test(currentRole);
+      if (isTeleSalesTrack) return isTeamLeader ? 'TeleSales Team Leader' : 'TeleSales Agent';
+      return isTeamLeader ? 'Sales Team Leader' : 'Sales Agent';
+    }
     default:
       return currentRole;
   }

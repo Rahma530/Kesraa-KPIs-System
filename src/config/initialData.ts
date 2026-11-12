@@ -83,6 +83,17 @@ export const INITIAL_DEPARTMENTS: Department[] = [
     teamLeaderName: 'Reda Fathy',
     isActive: true,
   },
+  // Sales/TeleSales module — FAKE SEED DATA for local testing only, nothing here is a
+  // real employee or touches Supabase. Holds two tracks (roleName 'TeleSales' and
+  // roleName 'Sales'), each with its own Team Leader, so there is no single
+  // teamLeaderId/teamLeaderName for the whole department the way other departments have.
+  {
+    id: 'dept-sales',
+    name: 'Sales',
+    code: 'SALES',
+    description: 'تحصيل المبيعات ومتابعة العملاء عبر مساري التيلي سيلز والسيلز.',
+    isActive: true,
+  },
 ];
 
 export const INITIAL_CLASSIFICATIONS: PerformanceClassificationConfig[] = [
@@ -1809,6 +1820,98 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     phone: '+20 10 00000302',
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',
+  },
+
+  // 8. Sales — FAKE SEED DATA for local testing only. None of these 5 employees are
+  // real people and none of this is written to Supabase; they exist purely so the
+  // Sales module has data to run against while it is built and tested locally.
+  {
+    // Department-scoped admin: sees and approves everything inside dept-sales only,
+    // the same capability set Head Technical has system-wide (see
+    // hasAuthorizationCapabilityForDepartment in authorization.ts).
+    id: 'emp-sales-admin-fake',
+    name: '[FAKE] Sales Department Admin',
+    email: 'fake.sales.admin@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Sales Team Leader',
+    level: 'Team Leader',
+    startDate: '2025-01-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    additionalPermissions: ['ADMIN'],
+    additionalPermissionScope: { departmentId: 'dept-sales' },
+    phone: '+20 10 00000901',
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 'emp-tl-telesales-fake',
+    name: '[FAKE] TeleSales Team Leader',
+    email: 'fake.tl.telesales@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'TeleSales Team Leader',
+    level: 'Team Leader',
+    teamLeaderId: 'emp-sales-admin-fake',
+    teamLeaderName: '[FAKE] Sales Department Admin',
+    startDate: '2025-02-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    phone: '+20 10 00000902',
+    createdAt: '2025-02-01T00:00:00Z',
+    updatedAt: '2025-02-01T00:00:00Z',
+  },
+  {
+    id: 'emp-telesales-1-fake',
+    name: '[FAKE] TeleSales Agent One',
+    email: 'fake.telesales1@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'TeleSales Agent',
+    level: 'Mid',
+    teamLeaderId: 'emp-tl-telesales-fake',
+    teamLeaderName: '[FAKE] TeleSales Team Leader',
+    startDate: '2025-03-01',
+    isActive: true,
+    systemRole: 'EMPLOYEE',
+    phone: '+20 10 00000903',
+    createdAt: '2025-03-01T00:00:00Z',
+    updatedAt: '2025-03-01T00:00:00Z',
+  },
+  {
+    id: 'emp-tl-sales-fake',
+    name: '[FAKE] Sales Team Leader',
+    email: 'fake.tl.sales@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Sales Team Leader',
+    level: 'Team Leader',
+    teamLeaderId: 'emp-sales-admin-fake',
+    teamLeaderName: '[FAKE] Sales Department Admin',
+    startDate: '2025-02-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    phone: '+20 10 00000904',
+    createdAt: '2025-02-01T00:00:00Z',
+    updatedAt: '2025-02-01T00:00:00Z',
+  },
+  {
+    id: 'emp-sales-1-fake',
+    name: '[FAKE] Sales Agent One',
+    email: 'fake.sales1@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Sales Agent',
+    level: 'Mid',
+    teamLeaderId: 'emp-tl-sales-fake',
+    teamLeaderName: '[FAKE] Sales Team Leader',
+    startDate: '2025-03-01',
+    isActive: true,
+    systemRole: 'EMPLOYEE',
+    phone: '+20 10 00000905',
+    createdAt: '2025-03-01T00:00:00Z',
+    updatedAt: '2025-03-01T00:00:00Z',
   },
 ];
 
