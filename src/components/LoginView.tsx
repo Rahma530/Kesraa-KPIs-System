@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, Mail, Lock, LockOpen, ArrowLeft, FlaskConical } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { StorageService } from '../services/storageService';
+import { INITIAL_EMPLOYEES } from '../config/initialData';
 
 export const LoginView: React.FC = () => {
   const { login, authError, clearAuthError, loginAsLocalTestEmployee } = useAuth();
@@ -22,9 +23,22 @@ export const LoginView: React.FC = () => {
   // out the new Sales module roles before merging into main. import.meta.env.DEV
   // is false in the production build, so this list is simply never computed and
   // the panel never renders outside `npm run dev`.
-  const localTestEmployees = import.meta.env.DEV
+  //
+  // Sourced from StorageService first (so edits made inside the app still show
+  // up), then filled in from INITIAL_EMPLOYEES for any dept-sales fake role not
+  // already in that list — this covers a browser that seeded its localStorage
+  // from an older copy of initialData.ts, before these fake roles existed there,
+  // so it would otherwise never pick them up.
+  const storedSalesEmployees = import.meta.env.DEV
     ? StorageService.getEmployees().filter((e) => e.isActive && e.departmentId === 'dept-sales')
     : [];
+  const storedSalesIds = new Set(storedSalesEmployees.map((e) => e.id));
+  const fallbackSalesEmployees = import.meta.env.DEV
+    ? INITIAL_EMPLOYEES.filter(
+        (e) => e.isActive && e.departmentId === 'dept-sales' && !storedSalesIds.has(e.id)
+      )
+    : [];
+  const localTestEmployees = [...storedSalesEmployees, ...fallbackSalesEmployees];
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

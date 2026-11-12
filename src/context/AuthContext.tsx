@@ -4,6 +4,7 @@ import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, System
 import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
 import { isEvaluableEmployee, isWithinTeamLeaderScope } from '../utils/departmentNames';
 import { StorageService } from '../services/storageService';
+import { INITIAL_EMPLOYEES } from '../config/initialData';
 import {
   AuthorizationCapability,
   hasAuthorizationCapability,
@@ -295,7 +296,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginAsLocalTestEmployee = (employeeId: string): void => {
     if (!import.meta.env.DEV) return; // No-op outside local dev — never usable in production.
-    const employee = StorageService.getEmployees().find((emp) => emp.id === employeeId);
+    // Falls back to INITIAL_EMPLOYEES when the id isn't in StorageService's list —
+    // a browser whose localStorage was seeded before a fake role existed in
+    // initialData.ts would otherwise never find it, even though LoginView shows it.
+    const employee =
+      StorageService.getEmployees().find((emp) => emp.id === employeeId) ??
+      INITIAL_EMPLOYEES.find((emp) => emp.id === employeeId);
     if (!employee) return;
     setAuthError('');
     setCurrentUser(employee);
