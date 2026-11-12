@@ -15,8 +15,9 @@ import { LoginView } from './components/LoginView';
 import { SetPasswordView } from './components/SetPasswordView';
 import { TeamLeaderDashboard } from './components/TeamLeaderDashboard';
 import { HeadTechnicalDashboard } from './components/HeadTechnicalDashboard';
-import { Evaluation, Employee, EvaluationQuarter } from './types';
-import { AuthorizationCapability } from './auth/authorization';
+import { SalesDashboardView } from './components/SalesDashboardView';
+import { Evaluation, Employee, EvaluationQuarter, SystemRole } from './types';
+import { AuthorizationCapability, hasAuthorizationCapabilityForDepartment } from './auth/authorization';
 import { StorageService } from './services/storageService';
 
 // Layout component containing Navbar, Footer, and Modals
@@ -245,6 +246,38 @@ const CapabilityRoute: React.FC<{
   return hasCapability(capability) ? <>{children}</> : <Navigate to="/" replace />;
 };
 
+// Guards an entire route group (everything under /admin, /ceo, ...) by the
+// user's systemRole. This is the real fix for the gap you found: AppLayout only
+// checks isAuthenticated, so without this, typing a URL like /admin/dashboard
+// directly in the browser — or opening a link/bookmark to it — would render that
+// section for ANY logged-in user, regardless of role, bypassing whichever
+// individual CapabilityRoute checks exist further down. Wrapping the whole
+// section here means every route nested under it is covered at once, not just
+// the ones someone remembered to wrap individually.
+const RoleGuardedSection: React.FC<{ roles: SystemRole[] }> = ({ roles }) => {
+  const { currentUser } = useAuth();
+  if (!currentUser || !roles.includes(currentUser.systemRole)) {
+    return <Navigate to="/" replace />;
+  }
+  return <Outlet />;
+};
+
+// Same idea as CapabilityRoute, but department-aware — hasCapability alone can't
+// answer "can this viewer see dept-sales specifically", since a Technical-scoped
+// admin (Reda, Toqa) and a Sales-scoped admin (Sales Manager, Head Of Sales) both
+// hold the capability, just over different departments. Guards the Sales Dashboard
+// route so only someone with real authority over dept-sales can open it.
+const DepartmentCapabilityRoute: React.FC<{
+  capability: AuthorizationCapability;
+  departmentId: string;
+  children: React.ReactNode;
+}> = ({ capability, departmentId, children }) => {
+  const { currentUser } = useAuth();
+  return hasAuthorizationCapabilityForDepartment(currentUser, capability, departmentId)
+    ? <>{children}</>
+    : <Navigate to="/" replace />;
+};
+
 // Smart Redirector for the root path
 const RootRedirector: React.FC = () => {
   const { isAuthenticated, currentUser } = useAuth();
@@ -292,7 +325,7 @@ const AppRoutes: React.FC = () => {
       
       <Route element={<AppLayout />}>
         {/* Admin / HR Routes */}
-        <Route path="/admin">
+        <Route path="/admin" element={<RoleGuardedSection roles={['ADMIN', 'HR']} />}>
           <Route path="dashboard" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
           <Route
@@ -311,11 +344,18 @@ const AppRoutes: React.FC = () => {
               </CapabilityRoute>
             )}
           />
-          <Route path="audit" element={<RouteWrapper component={AuditLogsView} />} />
+          <Route
+            path="audit"
+            element={(
+              <CapabilityRoute capability="VIEW_AUDIT_LOGS">
+                <RouteWrapper component={AuditLogsView} />
+              </CapabilityRoute>
+            )}
+          />
         </Route>
 
         {/* CEO Routes */}
-        <Route path="/ceo">
+        <Route path="/ceo" element={<RoleGuardedSection roles={['CEO']} />}>
           <Route path="dashboard" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
           <Route
@@ -326,11 +366,18 @@ const AppRoutes: React.FC = () => {
               </CapabilityRoute>
             )}
           />
-          <Route path="audit" element={<RouteWrapper component={AuditLogsView} />} />
+          <Route
+            path="audit"
+            element={(
+              <CapabilityRoute capability="VIEW_AUDIT_LOGS">
+                <RouteWrapper component={AuditLogsView} />
+              </CapabilityRoute>
+            )}
+          />
         </Route>
 
         {/* Head Technical Routes */}
-        <Route path="/head-technical">
+        <Route path="/head-technical" element={<RoleGuardedSection roles={['HEAD_TECHNICAL']} />}>
           <Route path="dashboard" element={<RouteWrapper component={HeadTechnicalDashboard} />} />
           <Route path="analytics" element={<RouteWrapper component={DashboardView} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
@@ -361,9 +408,21 @@ const AppRoutes: React.FC = () => {
         </Route>
 
         {/* Team Leader Routes */}
-        <Route path="/team-leader">
+        <Route path="/team-leader" element={<RoleGuardedSection roles={['TEAM_LEADER']} />}>
           <Route path="my-team" element={<RouteWrapper component={TeamLeaderDashboard} />} />
           <Route path="evaluations" element={<RouteWrapper component={EvaluationsListView} />} />
+          {/* Sales module's own dashboard — only reachable by someone with
+              VIEW_ALL_EVALUATIONS scoped to dept-sales (Sales Manager, Head Of
+              Sales). An ordinary Team Leader in any other department hitting this
+              URL directly is redirected home by the guard, never shown the page. */}
+          <Route
+            path="sales-dashboard"
+            element={(
+              <DepartmentCapabilityRoute capability="VIEW_ALL_EVALUATIONS" departmentId="dept-sales">
+                <RouteWrapper component={SalesDashboardView} />
+              </DepartmentCapabilityRoute>
+            )}
+          />
         </Route>
 
         {/* Employee Routes */}

@@ -687,7 +687,8 @@ export class StorageService {
       recordToSave.id,
       `Evaluation status is now ${recordToSave.status} for ${recordToSave.employeeName} (${recordToSave.quarter} ${recordToSave.year}). Final score: ${recordToSave.finalScore}`,
       prev ? JSON.stringify({ status: prev.status, score: prev.finalScore }) : undefined,
-      JSON.stringify({ status: recordToSave.status, score: recordToSave.finalScore })
+      JSON.stringify({ status: recordToSave.status, score: recordToSave.finalScore }),
+      recordToSave.departmentId
     );
 
     return saved;

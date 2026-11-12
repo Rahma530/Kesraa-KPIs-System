@@ -279,6 +279,12 @@ export interface AuditLog {
   previousValue?: string;
   newValue?: string;
   timestamp: string;
+  /** Which department this action belongs to, when it has one (currently only
+   * EVALUATION entries carry it — a settings change or a full backup/restore
+   * is a whole-system action with no single department). Lets a module-scoped
+   * dashboard (Sales, Technical) show its own slice of activity without ever
+   * exposing the company-wide Audit Log. */
+  departmentId?: string;
 }
 
 // Added for the Sales/TeleSales module: the actual numbers a Team Leader records for one

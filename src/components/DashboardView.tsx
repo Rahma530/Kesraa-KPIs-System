@@ -61,9 +61,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('ALL');
 
-  // Filter evaluations for active cycle
+  // This page is the shared Executive Dashboard — reached only by someone who
+  // already has VIEW_EXECUTIVE_DASHBOARD (checked in Navbar/App routing, not here).
+  // That alone doesn't tell us WHICH departments to show: a true unscoped
+  // Admin/HR/CEO should keep seeing everything (both modules), but Reda and Toqa now
+  // carry additionalPermissionScope = { departmentIds: TECHNICAL_DEPARTMENT_IDS } —
+  // for them this page must only ever aggregate their 7 Technical departments.
+  // Sales numbers are never mixed in here; they live in the separate Sales
+  // Dashboard. null means "no scope → no restriction".
+  const visibleDepartmentIds = currentUser?.additionalPermissionScope?.departmentIds ?? null;
+
+  const visibleDepartments = visibleDepartmentIds
+    ? departments.filter((dept) => visibleDepartmentIds.includes(dept.id))
+    : departments;
+
+  const visibleEmployees = visibleDepartmentIds
+    ? employees.filter((emp) => visibleDepartmentIds.includes(emp.departmentId))
+    : employees;
+
+  // Filter evaluations for active cycle (and, for a scoped viewer, to their module)
   const currentCycleEvals = evaluations.filter(
-    (e) => e.quarter === selectedQuarter && e.year === selectedYear
+    (e) =>
+      e.quarter === selectedQuarter &&
+      e.year === selectedYear &&
+      (!visibleDepartmentIds || visibleDepartmentIds.includes(e.departmentId))
   );
 
   // Department-filtered evaluations
@@ -73,8 +94,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       : currentCycleEvals.filter((e) => e.departmentId === selectedDeptFilter);
 
   // Key metrics calculation
-  const totalEmployees = employees.filter((e) => e.isActive).length;
-  const eligibleEmployees = employees.filter((e) => e.isActive && e.startDate <= '2026-06-01').length;
+  const totalEmployees = visibleEmployees.filter((e) => e.isActive).length;
+  const eligibleEmployees = visibleEmployees.filter((e) => e.isActive && e.startDate <= '2026-06-01').length;
   const completedEvals = displayedEvals.filter((e) =>
     e.status === 'APPROVED'
   );
@@ -96,7 +117,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     : 0;
 
   // Department comparison dataset
-  const deptPerformanceData = departments.map((dept) => {
+  const deptPerformanceData = visibleDepartments.map((dept) => {
     const deptEvals = currentCycleEvals.filter(
       (e) =>
         e.departmentId === dept.id &&
@@ -148,7 +169,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Historical Trends (Q1, Q2, Q3 2026)
   const historicalTrendData = ['Q1', 'Q2', 'Q3', 'Q4'].map((q) => {
-    const qEvals = evaluations.filter((e) => e.quarter === q && e.year === selectedYear && e.isEligible);
+    const qEvals = evaluations.filter(
+      (e) =>
+        e.quarter === q &&
+        e.year === selectedYear &&
+        e.isEligible &&
+        (!visibleDepartmentIds || visibleDepartmentIds.includes(e.departmentId))
+    );
     const avg =
       qEvals.length > 0
         ? Number((qEvals.reduce((s, e) => s + e.finalScore, 0) / qEvals.length).toFixed(1))
@@ -264,7 +291,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-white text-xs leading-relaxed mt-0.5">
             {topDept
               ? `${topDept.department} leads the current period with an average score of ${topDept.averageScore}.`
-              : `${departments.length} departments are active for evaluation.`}
+              : `${visibleDepartments.length} departments are active for evaluation.`}
           </p>
         </div>
 
@@ -284,9 +311,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
           }`}
         >
-          All Departments ({departments.length})
+          All Departments ({visibleDepartments.length})
         </button>
-        {departments.map((dept) => (
+        {visibleDepartments.map((dept) => (
           <button
             key={dept.id}
             id={`filter-dept-${dept.code.toLowerCase()}`}

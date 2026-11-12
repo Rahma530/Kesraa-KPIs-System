@@ -3,6 +3,7 @@ import { AuthChangeEvent, User } from '@supabase/supabase-js';
 import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
 import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
 import { isEvaluableEmployee, isWithinTeamLeaderScope } from '../utils/departmentNames';
+import { StorageService } from '../services/storageService';
 import {
   AuthorizationCapability,
   hasAuthorizationCapability,
@@ -21,6 +22,14 @@ export interface AuthContextType {
   authError: string;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** DEV-ONLY: signs in as a local fake employee from StorageService.getEmployees()
+   * (which is INITIAL_EMPLOYEES until localStorage is seeded) without touching
+   * Supabase Auth at all. Guarded by import.meta.env.DEV below, so calling it in a
+   * production build is a no-op — it can never reach system.kesraa.com. This exists
+   * only because no real Supabase Auth account exists for the fake Sales roles
+   * (Sales Manager, Head Of Sales, Head Of TeleSales), so there is no other way to
+   * test as them locally. */
+  loginAsLocalTestEmployee: (employeeId: string) => void;
   clearAuthError: () => void;
   finishPasswordSetup: () => void;
   canManageSettings: () => boolean;
@@ -284,6 +293,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginAsLocalTestEmployee = (employeeId: string): void => {
+    if (!import.meta.env.DEV) return; // No-op outside local dev — never usable in production.
+    const employee = StorageService.getEmployees().find((emp) => emp.id === employeeId);
+    if (!employee) return;
+    setAuthError('');
+    setCurrentUser(employee);
+  };
+
   const logout = async (): Promise<void> => {
     const { error } = await supabase.auth.signOut();
     clearAuthenticatedProfile();
@@ -371,6 +388,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authError,
         login,
         logout,
+        loginAsLocalTestEmployee,
         clearAuthError: () => setAuthError(''),
         finishPasswordSetup: () => updatePasswordSetupFlow(false),
         canManageSettings,
