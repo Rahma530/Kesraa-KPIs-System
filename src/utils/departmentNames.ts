@@ -80,7 +80,13 @@ export const getRoleOptions = (departmentId: string): string[] => {
     case 'dept-seo':
       return ['SEO Team Leader', 'SEO Specialist', 'Web Developer', 'Content Creator'];
     case 'dept-sales':
-      return ['TeleSales Team Leader', 'TeleSales Agent', 'Sales Team Leader', 'Sales Agent'];
+      return [
+        'Sales Manager',
+        'TeleSales Team Leader',
+        'TeleSales Agent',
+        'Sales Team Leader',
+        'Sales Agent',
+      ];
     default:
       return [];
   }
@@ -116,6 +122,10 @@ export const getStandardRole = (
     case 'dept-seo':
       return isTeamLeader ? 'SEO Team Leader' : currentRole;
     case 'dept-sales': {
+      // Sales Manager sits above both tracks and keeps its own title — it must
+      // never be folded down into "Sales Team Leader" just because its level is
+      // Team Leader, the same way Head Of Technical is special-cased above.
+      if (/sales\s*manager/i.test(currentRole)) return 'Sales Manager';
       // Two tracks inside one department (التيلي سيلز vs السيلز) — inferred from the
       // current role text the same way dept-cr tells a Video Editor from a Graphic
       // Designer above, since Employee has no separate "track" field of its own.

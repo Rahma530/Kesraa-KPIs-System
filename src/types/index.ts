@@ -12,12 +12,15 @@ export type SystemRole =
 export type AdditionalSystemPermission = 'ADMIN';
 
 // Added for the Sales/TeleSales module: lets the ADMIN additional permission be limited
-// to one department instead of the whole system. An employee with ADMIN and no scope
-// keeps today's system-wide behavior (e.g. Head Technical) — nothing changes for them.
-// An employee with ADMIN and a scope (e.g. a new Sales Admin) only gets ADMIN-level
-// capabilities for evaluations/employees inside that one department.
+// to one or more departments instead of the whole system. An employee with ADMIN and no
+// scope keeps today's system-wide behavior — nothing changes for them. An employee with
+// ADMIN and a scope (e.g. the Sales Manager / Head Of Sales, scoped to dept-sales; or,
+// for local testing, an existing admin re-scoped to every department except Sales) only
+// gets ADMIN-level capabilities for evaluations/employees inside the listed departments.
+// A list (not a single id) because one admin's scope can span several departments at
+// once — e.g. "every department except Sales".
 export interface AdditionalPermissionScope {
-  departmentId: string;
+  departmentIds: string[];
 }
 
 export type EmployeeLevel = 'Junior' | 'Mid' | 'Senior' | 'Team Leader';

@@ -103,7 +103,7 @@ export const hasAuthorizationCapabilityForDepartment = (
   if (!employee.additionalPermissionScope) return true; // unscoped ADMIN: system-wide
   return (
     DEPARTMENT_SCOPABLE_CAPABILITIES.includes(capability) &&
-    employee.additionalPermissionScope.departmentId === departmentId
+    employee.additionalPermissionScope.departmentIds.includes(departmentId)
   );
 };
 

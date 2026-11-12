@@ -2195,9 +2195,30 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     updatedAt: '2026-08-16T00:00:00Z',
   },
 
-  // 8. Sales — FAKE SEED DATA for local testing only. None of these 5 employees are
+  // 8. Sales — FAKE SEED DATA for local testing only. None of these 6 employees are
   // real people and none of this is written to Supabase; they exist purely so the
   // Sales module has data to run against while it is built and tested locally.
+  {
+    // Sales Manager: the highest job title in the whole Sales department (both
+    // tracks). Same department-scoped ADMIN grant as Head Of Sales below — the
+    // two are peers in authority, Sales Manager is just org-chart-senior to both
+    // Head Of Sales and Head Of TeleSales (see their teamLeaderId below).
+    id: 'emp-sales-manager-fake',
+    name: '[FAKE] Sales Manager',
+    email: 'fake.sales.manager@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Sales Manager',
+    level: 'Team Leader',
+    startDate: '2025-01-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    additionalPermissions: ['ADMIN'],
+    additionalPermissionScope: { departmentIds: ['dept-sales'] },
+    phone: '+20 10 00000901',
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
+  },
   {
     // Head Of Sales: the Sales Team Leader role itself carries full
     // department-scoped authority over dept-sales (both the Sales track and
@@ -2205,7 +2226,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     // system-wide but limited to this department (see
     // hasAuthorizationCapabilityForDepartment in authorization.ts). There is
     // no separate standalone "admin" employee — the real Sales Team Leader
-    // is the admin.
+    // is the admin, same as the Sales Manager above.
     id: 'emp-tl-sales-fake',
     name: '[FAKE] Sales Team Leader',
     email: 'fake.tl.sales@kesraa.local',
@@ -2213,11 +2234,13 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     departmentName: 'Sales',
     role: 'Sales Team Leader',
     level: 'Team Leader',
+    teamLeaderId: 'emp-sales-manager-fake',
+    teamLeaderName: '[FAKE] Sales Manager',
     startDate: '2025-02-01',
     isActive: true,
     systemRole: 'TEAM_LEADER',
     additionalPermissions: ['ADMIN'],
-    additionalPermissionScope: { departmentId: 'dept-sales' },
+    additionalPermissionScope: { departmentIds: ['dept-sales'] },
     phone: '+20 10 00000904',
     createdAt: '2025-02-01T00:00:00Z',
     updatedAt: '2025-02-01T00:00:00Z',
@@ -2234,8 +2257,8 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     departmentName: 'Sales',
     role: 'TeleSales Team Leader',
     level: 'Team Leader',
-    teamLeaderId: 'emp-tl-sales-fake',
-    teamLeaderName: '[FAKE] Sales Team Leader',
+    teamLeaderId: 'emp-sales-manager-fake',
+    teamLeaderName: '[FAKE] Sales Manager',
     startDate: '2025-02-01',
     isActive: true,
     systemRole: 'TEAM_LEADER',
