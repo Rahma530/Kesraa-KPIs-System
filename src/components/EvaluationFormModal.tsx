@@ -31,7 +31,10 @@ import { CalculationEngine } from '../services/calculationEngine';
 import { ARABIC_STATUSES, ARABIC_CLASSIFICATIONS } from '../locales/ar';
 import { AiRecommendationsModal } from './AiRecommendationsModal';
 import { printEvaluationReport } from '../services/evaluationReportService';
-import { isTechnicalReviewer as isTechnicalReviewerEmployee } from '../auth/authorization';
+import {
+  isTechnicalReviewer as isTechnicalReviewerEmployee,
+  hasAuthorizationCapabilityForDepartment,
+} from '../auth/authorization';
 import { logActivity } from '../utils/auditLogger';
 
 // Shared edit rule for the evaluation form and the dashboards that open it.
@@ -50,6 +53,21 @@ export const canEditEvaluation = (
           evaluation.reopenedByRole === 'TEAM_LEADER' &&
           evaluation.departmentId === user.departmentId)))
   );
+
+// Who may approve an evaluation: Head Technical (system-wide, unchanged), any
+// system-wide ADMIN (e.g. the CEO), or a department-scoped ADMIN acting only
+// within their own department (e.g. the Sales Team Leader / "Head Of Sales"
+// for dept-sales evaluations). This intentionally does NOT change who can
+// edit, reopen, or export an evaluation — only who can see/use the Approve
+// button, per the explicit scope the user asked for.
+export const canApproveEvaluation = (
+  user: Employee | null | undefined,
+  evaluation?: Evaluation | null
+): boolean => {
+  if (isTechnicalReviewerEmployee(user)) return true;
+  if (!evaluation?.departmentId) return false;
+  return hasAuthorizationCapabilityForDepartment(user, 'APPROVE_EVALUATIONS', evaluation.departmentId);
+};
 
 export const canReopenEvaluation = (
   user: Employee | null | undefined,
@@ -159,6 +177,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     evaluation.reopenedByRole === 'TEAM_LEADER';
   const canEdit = canEditEvaluation(currentUser, evaluation);
   const isLocked = !canEdit;
+  const canApprove = canApproveEvaluation(currentUser, evaluation);
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;
   const canHeadActOnDraft = isCurrentUserHeadTechnical &&
@@ -885,7 +904,7 @@ Return valid JSON only, using this structure:
               </button>
             )}
 
-            {canEdit && eligibility.isEligible && isCurrentUserHeadTechnical && (
+            {eligibility.isEligible && !isApproved && canApprove && (
               evaluation?.status === 'UNDER_REVIEW' || canHeadActOnDraft
             ) && (
               <button
