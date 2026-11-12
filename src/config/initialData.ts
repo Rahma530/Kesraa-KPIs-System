@@ -96,6 +96,16 @@ export const INITIAL_DEPARTMENTS: Department[] = [
   },
 ];
 
+// Every department that existed before the Sales module was added — i.e. everything
+// except dept-sales — now grouped under one umbrella scope, "Technical". Used below to
+// scope Reda's and Toqa's existing system-wide ADMIN grant down to this one module, now
+// that Sales is split off as its own, separately-managed module with its own Sales
+// Manager / Head Of Sales. Computed from INITIAL_DEPARTMENTS rather than listed by hand
+// so it stays correct automatically if another non-Sales department is ever added.
+const TECHNICAL_DEPARTMENT_IDS: string[] = INITIAL_DEPARTMENTS
+  .filter((department) => department.id !== 'dept-sales')
+  .map((department) => department.id);
+
 export const INITIAL_CLASSIFICATIONS: PerformanceClassificationConfig[] = [
   {
     id: 'cls-1',
@@ -1640,6 +1650,20 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     startDate: '2022-01-01',
     isActive: true,
     systemRole: 'CEO',
+    // LOCAL TESTING ONLY — mirrors Reda's real production grant (CEO + ADMIN per
+    // CLAUDE.md) so this can be exercised locally; his real ADMIN permission comes
+    // from Supabase Auth app_metadata in production, not from this file (see
+    // resolveEmployeeProfile in AuthContext.tsx), so this scope has NO effect on
+    // production until a matching change is made there — not done yet, pending a
+    // separate explicit go-ahead. Scoped to every department except Sales ("Technical"):
+    // his day-to-day evaluation authority (manage employees / evaluate / approve /
+    // view-all) is now Technical-only, while MANAGE_SETTINGS, PUBLISH_EVALUATIONS and
+    // the executive dashboard/audit-log/KPI-weight views stay whole-company, granted by
+    // the CEO systemRole itself (see ROLE_CAPABILITIES.CEO in authorization.ts) — those
+    // are single, whole-company operations with no per-department version, so they are
+    // never cut down by this scope.
+    additionalPermissions: ['ADMIN'],
+    additionalPermissionScope: { departmentIds: TECHNICAL_DEPARTMENT_IDS },
     phone: '+20 10 80457023',
     createdAt: '2022-01-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',
@@ -2046,6 +2070,19 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     isActive: true,
     systemRole: 'HEAD_TECHNICAL',
     additionalPermissions: ['ADMIN'],
+    // LOCAL TESTING ONLY — same caveat as emp-reda above: this has no effect on
+    // production until resolveEmployeeProfile is updated to read a real scope from
+    // Supabase, which is a separate step pending explicit approval. Scoped to every
+    // department except Sales: her HEAD_TECHNICAL role already grants
+    // MANAGE_EMPLOYEES/EVALUATE_ALL_EMPLOYEES/VIEW_ALL_EVALUATIONS (see
+    // ROLE_CAPABILITIES.HEAD_TECHNICAL), and those are now Technical-only too. Unlike
+    // Reda, she has no systemRole-level grant of MANAGE_SETTINGS/PUBLISH_EVALUATIONS/
+    // the executive dashboard — those came only from her ADMIN permission, which does
+    // not carry non-scopable capabilities once scoped (see
+    // hasAuthorizationCapabilityForDepartment in authorization.ts) — so scoping her
+    // removes those three for her entirely, leaving Reda as the one person who still
+    // holds them company-wide.
+    additionalPermissionScope: { departmentIds: TECHNICAL_DEPARTMENT_IDS },
     phone: '+20 11 88990011',
     createdAt: '2022-09-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',

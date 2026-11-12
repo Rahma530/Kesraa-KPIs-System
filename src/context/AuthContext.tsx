@@ -6,6 +6,7 @@ import { isEvaluableEmployee, isWithinTeamLeaderScope } from '../utils/departmen
 import {
   AuthorizationCapability,
   hasAuthorizationCapability,
+  hasAuthorizationCapabilityForDepartment,
   isTechnicalReviewer as isTechnicalReviewerEmployee,
   VALID_ADDITIONAL_PERMISSIONS,
 } from '../auth/authorization';
@@ -320,7 +321,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser || !currentUser.isActive) return false;
     if (!isEvaluableEmployee(target)) return false;
     if (currentUser.id === target.id) return false;
-    if (hasCapability('EVALUATE_ALL_EMPLOYEES')) return true;
+    // Department-aware, not the plain hasCapability('EVALUATE_ALL_EMPLOYEES'): a
+    // Technical-scoped Head Technical/CEO must say yes for target's own department
+    // and no for dept-sales (and the reverse for a Sales-scoped Sales Manager/Head Of
+    // Sales) — the plain, department-unaware capability check can't tell those apart.
+    if (hasAuthorizationCapabilityForDepartment(currentUser, 'EVALUATE_ALL_EMPLOYEES', target.departmentId)) {
+      return true;
+    }
     if (currentUser.systemRole === 'TEAM_LEADER') {
       // isWithinTeamLeaderScope also narrows a TeleSales Team Leader (Head Of
       // TeleSales) to التيلي سيلز only inside dept-sales; every other department
@@ -332,7 +339,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const canViewEvaluation = (evalItem: Evaluation): boolean => {
     if (!currentUser) return false;
-    if (hasCapability('VIEW_ALL_EVALUATIONS')) return true;
+    // Same department-aware reasoning as canEvaluateEmployee above.
+    if (hasAuthorizationCapabilityForDepartment(currentUser, 'VIEW_ALL_EVALUATIONS', evalItem.departmentId)) {
+      return true;
+    }
     if (currentUser.systemRole === 'TEAM_LEADER') {
       // A team leader never sees their own evaluation — that is management's call.
       if (evalItem.employeeId === currentUser.id) return false;

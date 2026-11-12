@@ -31,19 +31,31 @@ import { CalculationEngine } from '../services/calculationEngine';
 import { ARABIC_STATUSES, ARABIC_CLASSIFICATIONS } from '../locales/ar';
 import { AiRecommendationsModal } from './AiRecommendationsModal';
 import { printEvaluationReport } from '../services/evaluationReportService';
-import {
-  isTechnicalReviewer as isTechnicalReviewerEmployee,
-  hasAuthorizationCapabilityForDepartment,
-} from '../auth/authorization';
+import { hasAuthorizationCapabilityForDepartment } from '../auth/authorization';
 import { logActivity } from '../utils/auditLogger';
 
 // Shared edit rule for the evaluation form and the dashboards that open it.
+//
+// "Full reviewer" power (editing freely, not just while the evaluatee's own team
+// leader is drafting it) used to be a direct systemRole === 'HEAD_TECHNICAL' check,
+// which made it unconditional and global no matter what. It is now
+// hasAuthorizationCapabilityForDepartment(user, 'EVALUATE_ALL_EMPLOYEES', departmentId):
+// for an unscoped holder (nobody declared a department list) this is exactly as
+// global as before; for a department-scoped holder (a Technical-scoped Head
+// Technical/CEO, or a Sales-scoped Sales Manager/Head Of Sales) it is true only for
+// evaluations inside their own scope.
+//
+// departmentId is a separate parameter (not read off `evaluation` directly) because a
+// brand-new evaluation that has not been saved yet has no `evaluation` object at all —
+// the caller passes the evaluatee's own departmentId in that case; for an existing
+// evaluation, passing nothing falls back to evaluation.departmentId.
 export const canEditEvaluation = (
   user: Employee | null | undefined,
-  evaluation?: Evaluation | null
+  evaluation?: Evaluation | null,
+  departmentId: string = evaluation?.departmentId || ''
 ): boolean =>
   !(evaluation?.status === 'APPROVED' || evaluation?.locked) && (
-    isTechnicalReviewerEmployee(user) ||
+    hasAuthorizationCapabilityForDepartment(user, 'EVALUATE_ALL_EMPLOYEES', departmentId) ||
     (user?.isActive !== false &&
       user?.systemRole === 'TEAM_LEADER' &&
       evaluation?.employeeId !== user.id &&
@@ -54,17 +66,17 @@ export const canEditEvaluation = (
           evaluation.departmentId === user.departmentId)))
   );
 
-// Who may approve an evaluation: Head Technical (system-wide, unchanged), any
-// system-wide ADMIN (e.g. the CEO), or a department-scoped ADMIN acting only
-// within their own department (e.g. the Sales Team Leader / "Head Of Sales"
-// for dept-sales evaluations). This intentionally does NOT change who can
-// edit, reopen, or export an evaluation — only who can see/use the Approve
-// button, per the explicit scope the user asked for.
+// Who may approve an evaluation: anyone holding APPROVE_EVALUATIONS for this
+// evaluation's own department — an unscoped holder (Head Technical/CEO before any
+// scope was declared) system-wide as always, or a department-scoped holder (a
+// Technical-scoped Head Technical/CEO, or the Sales Manager / Head Of Sales for
+// dept-sales) only within their own department. There is no more unconditional
+// systemRole bypass here: Head Technical's approve power now comes entirely from
+// holding the capability for the evaluation's department, same as everyone else.
 export const canApproveEvaluation = (
   user: Employee | null | undefined,
   evaluation?: Evaluation | null
 ): boolean => {
-  if (isTechnicalReviewerEmployee(user)) return true;
   if (!evaluation?.departmentId) return false;
   return hasAuthorizationCapabilityForDepartment(user, 'APPROVE_EVALUATIONS', evaluation.departmentId);
 };
@@ -77,7 +89,11 @@ export const canReopenEvaluation = (
     user?.isActive !== false &&
     evaluation?.status === 'APPROVED' &&
     (
-      isTechnicalReviewerEmployee(user) ||
+      hasAuthorizationCapabilityForDepartment(
+        user,
+        'EVALUATE_ALL_EMPLOYEES',
+        evaluation?.departmentId || ''
+      ) ||
       (user?.systemRole === 'TEAM_LEADER' &&
         evaluation.departmentId === user.departmentId &&
         evaluation.employeeId !== user.id)
@@ -151,7 +167,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   onClose,
   onSaved,
 }) => {
-  const { currentUser, canViewKPIWeights, isTechnicalReviewer } = useAuth();
+  const { currentUser, canViewKPIWeights } = useAuth();
   const { settings, saveEvaluation, selectedQuarter, selectedYear, employees } = useData();
 
   // Eligibility calculation (minimum 2 months)
@@ -167,7 +183,6 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
         settings.minEmploymentMonths || 2
       );
 
-  const isCurrentUserHeadTechnical = isTechnicalReviewer();
   const isCurrentUserTeamLeader = currentUser?.systemRole === 'TEAM_LEADER';
   const isApproved = evaluation?.status === 'APPROVED' || evaluation?.locked;
   const canReopen = canReopenEvaluation(currentUser, evaluation);
@@ -175,12 +190,25 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     isCurrentUserTeamLeader &&
     evaluation?.status === 'UNDER_REVIEW' &&
     evaluation.reopenedByRole === 'TEAM_LEADER';
-  const canEdit = canEditEvaluation(currentUser, evaluation);
+  // Pass targetEmployee.departmentId explicitly (not just the evaluation) so this is
+  // correct even for a brand-new evaluation that has no `evaluation` object yet.
+  const canEdit = canEditEvaluation(currentUser, evaluation, targetEmployee.departmentId);
   const isLocked = !canEdit;
   const canApprove = canApproveEvaluation(currentUser, evaluation);
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;
-  const canHeadActOnDraft = isCurrentUserHeadTechnical &&
+  // Replaces the old direct "systemRole === HEAD_TECHNICAL" check. Same capability as
+  // canEdit's bypass above, checked directly against the evaluatee's department so it
+  // reflects a department scope correctly: true for Head Technical/CEO within their
+  // own (unscoped, or Technical-scoped) departments, and equally true for the Sales
+  // Manager / Head Of Sales within dept-sales — whoever genuinely has full reviewer
+  // authority over this specific evaluatee's department.
+  const canFullyReview = hasAuthorizationCapabilityForDepartment(
+    currentUser,
+    'EVALUATE_ALL_EMPLOYEES',
+    targetEmployee.departmentId
+  );
+  const canHeadActOnDraft = canFullyReview &&
     isDirectHeadEvaluation(targetEmployee, employees) &&
     (!evaluation || evaluation.status === 'DRAFT');
 
@@ -865,7 +893,7 @@ Return valid JSON only, using this structure:
                 id="btn-save-draft"
                 type="button"
                 onClick={() => handleAction(
-                  (isCurrentUserHeadTechnical || isTeamLeaderReopenedEvaluation) &&
+                  (canFullyReview || isTeamLeaderReopenedEvaluation) &&
                     evaluation?.status === 'UNDER_REVIEW'
                     ? 'UNDER_REVIEW'
                     : 'DRAFT'
@@ -878,7 +906,7 @@ Return valid JSON only, using this structure:
               </button>
             )}
 
-            {isCurrentUserHeadTechnical && (
+            {canFullyReview && (
               <button
                 id="btn-export-evaluation-pdf"
                 type="button"
