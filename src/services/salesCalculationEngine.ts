@@ -80,8 +80,8 @@ export class SalesCalculationEngine {
   /**
    * نقطة الدخول الرئيسية: تحسب نتيجة مؤشر METRIC واحد. achieved = null معناها "غير
    * منطبق" (لا حالات مستحقة هذا الشهر)، ومفيش targetValue على المؤشر معناها إنه لسه
-   * مش متضبط له تارجت رقمي (حالة AOV حاليًا — الملف نفسه معطاش رقم تارجت لـAOV، فمحتاجة
-   * نحدد رقم قبل ما يتحول لحساب آلي فعلي، وفضل لحد ذلك "غير منطبق" بدل ما نخترع رقم).
+   * مش متضبط له تارجت رقمي. (AOV دلوقتي ليه تارجت = 2,500 ريال، متحدد في initialData.ts،
+   * فبقى بيُحسب آليًا زي باقي مؤشرات METRIC بدل ما يفضل "غير منطبق" دايمًا).
    */
   public static scoreMetricKpi(
     kpi: KPIDefinition,
@@ -181,7 +181,7 @@ export class SalesCalculationEngine {
           isProvisional: false,
           lowerIsBetter: false,
         };
-      case 'kpi-sales-s-2': // معدل AOV — غير منطبق لحد ما يتحدد تارجت رقمي له
+      case 'kpi-sales-s-2': // معدل AOV — تارجته 2,500 ريال (مؤشر "الأعلى أفضل")
         return {
           achieved: this.calculateAOV(actuals.dealsValueTotal || 0, actuals.dealsCount || 0),
           isProvisional: false,
