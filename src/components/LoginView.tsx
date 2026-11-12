@@ -14,11 +14,17 @@ export const LoginView: React.FC = () => {
   const [isResetMode, setIsResetMode] = useState(false);
   const [resetRequestComplete, setResetRequestComplete] = useState(false);
 
-  // DEV-ONLY: lets you sign in as any employee (real or the fake Sales ones)
-  // without a password, by setting currentUser directly — no Supabase Auth call at
-  // all. import.meta.env.DEV is false in the production build, so this list is
-  // simply never computed and the panel never renders outside `npm run dev`.
-  const localTestEmployees = import.meta.env.DEV ? StorageService.getEmployees().filter((e) => e.isActive) : [];
+  // DEV-ONLY: lets you sign in as any Sales/TeleSales fake employee without a
+  // password, by setting currentUser directly — no Supabase Auth call at all.
+  // Scoped to dept-sales only: Technical employees never log in with admin-level
+  // roles themselves (only the real account holders do, via normal Supabase
+  // login), so there is nothing to test there — this panel exists solely to try
+  // out the new Sales module roles before merging into main. import.meta.env.DEV
+  // is false in the production build, so this list is simply never computed and
+  // the panel never renders outside `npm run dev`.
+  const localTestEmployees = import.meta.env.DEV
+    ? StorageService.getEmployees().filter((e) => e.isActive && e.departmentId === 'dept-sales')
+    : [];
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,7 +232,7 @@ export const LoginView: React.FC = () => {
               </p>
             </div>
             <p className="mb-3 text-[11px] text-slate-400">
-              Sign in directly as any employee from the local fake data, no password needed. This bypasses Supabase Auth entirely — it only exists so every role (including the fake Sales ones) can be tested locally.
+              Sign in directly as any Sales/TeleSales fake role, no password needed. This bypasses Supabase Auth entirely — it only exists to test the new Sales module locally before merging into main.
             </p>
             <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
               {localTestEmployees.map((emp) => (
