@@ -40,7 +40,7 @@ export interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isLocalTestSession } = useAuth();
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -62,6 +62,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setEmployees([]);
       setDepartments([]);
       return [];
+    }
+
+    // DEV-ONLY Local Test Login: no real Supabase Auth session exists, so the
+    // authoritative roster call below would fail/return nothing. Source the roster
+    // from local storage instead (StorageService.getEmployees/getDepartments), which
+    // already falls back to INITIAL_EMPLOYEES/INITIAL_DEPARTMENTS.
+    if (isLocalTestSession) {
+      const localEmployees = StorageService.getEmployees();
+      const localDepartments = StorageService.getDepartments();
+      setDepartments(localDepartments);
+      setEmployees(localEmployees);
+      return localEmployees;
     }
 
     const roster = await EmployeeManagementService.listEvaluationRoster();
@@ -92,7 +104,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setDepartments(authoritativeDepartments);
     setEmployees(authoritativeEmployees);
     return authoritativeEmployees;
-  }, [currentUser?.id]);
+  }, [currentUser?.id, isLocalTestSession]);
 
   const refreshData = useCallback(async () => {
     if (!currentUser?.id) {
@@ -102,6 +114,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshLocalAuxiliaryData();
       return [];
     }
+
+    // DEV-ONLY Local Test Login: same reasoning as refreshEmployees above — read
+    // evaluations from local storage instead of the Supabase-authoritative call.
+    if (isLocalTestSession) {
+      await refreshEmployees();
+      const localEvaluations = StorageService.getEvaluations();
+      setEvaluations(localEvaluations);
+      refreshLocalAuxiliaryData();
+      return localEvaluations;
+    }
+
     const [, remoteEvaluations] = await Promise.all([
       refreshEmployees(),
       StorageService.getEvaluationsFromSupabase(),
@@ -109,17 +132,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setEvaluations(remoteEvaluations);
     refreshLocalAuxiliaryData();
     return remoteEvaluations;
-  }, [currentUser?.id, refreshEmployees, refreshLocalAuxiliaryData]);
+  }, [currentUser?.id, isLocalTestSession, refreshEmployees, refreshLocalAuxiliaryData]);
 
   // Shared settings come from public.settings; keep the cached/default copy if that fails.
+  // DEV-ONLY Local Test Login has no real Supabase session to fetch with, so skip the
+  // call entirely rather than letting it fail — the already-loaded cached/default
+  // settings (initialSettings above) are used as-is.
   const loadSettings = useCallback(async () => {
+    if (isLocalTestSession) return null;
     const remoteSettings = await StorageService.fetchSettingsFromSupabase();
     if (remoteSettings) {
       setSettings(remoteSettings);
       setSettingsSource('database');
     }
     return remoteSettings;
-  }, []);
+  }, [isLocalTestSession]);
 
   useEffect(() => {
     if (currentUser?.id) void loadSettings();
@@ -151,9 +178,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const actorRole = currentUser?.systemRole || 'ADMIN';
     const actorEmail = currentUser?.email || '';
 
-    // Pass email so Supabase gets correct evaluator_email
-    const saved = await StorageService.saveEvaluation(evaluation, actorId, actorName, actorRole, actorEmail);
-    
+    // DEV-ONLY Local Test Login: no real Supabase session to write through, so save to
+    // local storage instead (same id-matching/locking/rank-recalculation logic, just
+    // without the Supabase round-trip). logActivity below already tolerates failing
+    // silently when there's no session, so it's left as-is.
+    const saved = isLocalTestSession
+      ? StorageService.saveEvaluationLocally(evaluation, actorId, actorName, actorRole)
+      // Pass email so Supabase gets correct evaluator_email
+      : await StorageService.saveEvaluation(evaluation, actorId, actorName, actorRole, actorEmail);
+
     // Log activity to audit_logs table
     logActivity({
       userRole: actorRole,

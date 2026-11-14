@@ -694,6 +694,64 @@ export class StorageService {
     return saved;
   }
 
+  /**
+   * DEV-ONLY local-test counterpart to saveEvaluation above: same id-matching, locking,
+   * and department-rank recalculation, but writes to localStorage instead of Supabase.
+   * Used only when the signed-in session is a Local Test Login (no real Supabase
+   * session to write through), so a test role can create/edit evaluations entirely
+   * offline. Matches by the evaluation's own id only — there is no databaseId/Supabase
+   * row to reconcile against locally.
+   */
+  public static saveEvaluationLocally(
+    evaluation: Evaluation,
+    actorId: string,
+    actorName: string,
+    actorRole: any
+  ): Evaluation {
+    let evaluations = this.getEvaluations();
+    const index = evaluations.findIndex((item) => item.id === evaluation.id);
+    const prev = index >= 0 ? evaluations[index] : undefined;
+    const shouldLock = evaluation.status === 'APPROVED';
+
+    const recordToSave: Evaluation = {
+      ...evaluation,
+      locked: evaluation.locked || shouldLock,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (index >= 0) {
+      evaluations[index] = recordToSave;
+    } else {
+      evaluations.push(recordToSave);
+    }
+
+    evaluations = CalculationEngine.recalculateDepartmentRanks(
+      evaluations,
+      recordToSave.departmentId,
+      recordToSave.quarter,
+      recordToSave.year
+    );
+
+    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(evaluations));
+
+    const saved = evaluations.find((item) => item.id === recordToSave.id) || recordToSave;
+
+    AuditService.logAction(
+      actorId,
+      actorName,
+      actorRole,
+      index >= 0 ? `EVALUATION_${recordToSave.status}` : 'EVALUATION_CREATED',
+      'EVALUATION',
+      recordToSave.id,
+      `Evaluation status is now ${recordToSave.status} for ${recordToSave.employeeName} (${recordToSave.quarter} ${recordToSave.year}). Final score: ${recordToSave.finalScore}`,
+      prev ? JSON.stringify({ status: prev.status, score: prev.finalScore }) : undefined,
+      JSON.stringify({ status: recordToSave.status, score: recordToSave.finalScore }),
+      recordToSave.departmentId
+    );
+
+    return saved;
+  }
+
   // --- BACKUP & RESTORE ---
   public static exportFullBackup(authoritativeEmployees: Employee[]): string {
     const payload = {

@@ -31,6 +31,11 @@ export interface AuthContextType {
    * (Sales Manager, Head Of Sales, Head Of TeleSales), so there is no other way to
    * test as them locally. */
   loginAsLocalTestEmployee: (employeeId: string) => void;
+  /** True only while the current session came from loginAsLocalTestEmployee (no real
+   * Supabase Auth session exists). DataContext reads this to source employees/
+   * evaluations from local storage instead of the Supabase-authoritative calls, which
+   * would otherwise fail/return empty for a session with no real Supabase Auth token. */
+  isLocalTestSession: boolean;
   clearAuthError: () => void;
   finishPasswordSetup: () => void;
   canManageSettings: () => boolean;
@@ -180,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initialPasswordSetupCallback.error
   );
   const [authError, setAuthError] = useState('');
+  const [isLocalTestSession, setIsLocalTestSession] = useState(false);
   const passwordSetupFlowRef = useRef(isPasswordSetupFlow);
 
   const updatePasswordSetupFlow = (active: boolean) => {
@@ -193,11 +199,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearAuthenticatedProfile = () => {
     setCurrentUser(null);
+    setIsLocalTestSession(false);
   };
 
   const loadAuthenticatedProfile = async (authUser: User) => {
     const employee = await resolveEmployeeProfile(authUser);
     setCurrentUser(employee);
+    setIsLocalTestSession(false); // Always a real Supabase session on this path.
     return employee;
   };
 
@@ -322,6 +330,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!employee) return;
     setAuthError('');
     setCurrentUser(employee);
+    setIsLocalTestSession(true);
   };
 
   const logout = async (): Promise<void> => {
@@ -412,6 +421,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         loginAsLocalTestEmployee,
+        isLocalTestSession,
         clearAuthError: () => setAuthError(''),
         finishPasswordSetup: () => updatePasswordSetupFlow(false),
         canManageSettings,
