@@ -110,7 +110,17 @@ export class CalculationEngine {
     kpiDefinitions: KPIDefinition[],
     level: EmployeeLevel,
     isHeadTechnical: boolean = false,
-    classifications: PerformanceClassificationConfig[]
+    classifications: PerformanceClassificationConfig[],
+    // Sales/TeleSales Team Leaders don't follow the standard 60%→40% department rescale
+    // below: their own DEPARTMENT KPIs (e.g. "تحصيله الشخصي" 35 + "تحصيل الموظف الجديد"
+    // 10 + ...) already sum to a complete, standalone 60 and already fold their
+    // leadership-style questions (review & coaching, new-hire training) directly into
+    // that list — there is no separate 20%-leadership bucket carved out of their 60 the
+    // way there is for every other department's Team Leader. The caller is responsible
+    // for also not appending the generic cross-department LEADERSHIP KPIs for these
+    // evaluatees, since those are the Technical-oriented ones this rescale normally makes
+    // room for. Defaults to false so every other department is completely unaffected.
+    hasStandaloneDepartmentWeights: boolean = false
   ): ScoreCalculationResult {
     let commonContribution = 0;
     let deptContribution = 0;
@@ -129,7 +139,7 @@ export class CalculationEngine {
       let effectiveWeight = kpi.weight;
 
       // Adjust department functional weights for Team Leaders if needed (60% standard becomes 40% functional for TL)
-      if (isTeamLeader && !isHeadTechnical && kpi.category === 'DEPARTMENT') {
+      if (isTeamLeader && !isHeadTechnical && !hasStandaloneDepartmentWeights && kpi.category === 'DEPARTMENT') {
         effectiveWeight = (kpi.weight / 60) * 40;
       }
 

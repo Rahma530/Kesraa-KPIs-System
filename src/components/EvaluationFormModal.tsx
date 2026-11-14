@@ -198,6 +198,12 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   const canApprove = canApproveEvaluation(currentUser, evaluation);
   const isTeamLeader = targetEmployee.level === 'Team Leader' || targetEmployee.systemRole === 'TEAM_LEADER';
   const isHeadTech = targetEmployee?.isHeadTechnical;
+  // Sales/TeleSales Team Leaders' DEPARTMENT KPIs are a complete, standalone 60 points
+  // with leadership-style questions (review & coaching, new-hire training) already
+  // folded in — unlike every other department, where a Team Leader's 60 department
+  // points get rescaled to 40 to make room for a separate 20%-leadership bucket. See
+  // CalculationEngine.calculateScores' hasStandaloneDepartmentWeights parameter.
+  const isSalesTeamLeaderStructure = isTeamLeader && targetEmployee.departmentId === 'dept-sales';
   // Replaces the old direct "systemRole === HEAD_TECHNICAL" check. Same capability as
   // canEdit's bypass above, checked directly against the evaluatee's department so it
   // reflects a department scope correctly: true for Head Technical/CEO within their
@@ -220,10 +226,17 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     }
     const common = settings.commonKPIs.filter((k) => k.isActive);
     const dept = selectDepartmentKpis(settings.departmentKPIs, targetEmployee);
-    const leadership = isTeamLeader ? settings.leadershipKPIs.filter((k) => k.isActive) : [];
+    // The generic cross-department leadership KPIs (e.g. "إدارة الفريق وتطوير الأفراد")
+    // are Technical-oriented and are what the standard 60%→40% rescale makes room for.
+    // A Sales/TeleSales Team Leader has her own leadership-style questions already
+    // folded into her department KPI list above (see isSalesTeamLeaderStructure), so she
+    // does not get these generic ones added on top.
+    const leadership = isTeamLeader && !isSalesTeamLeaderStructure
+      ? settings.leadershipKPIs.filter((k) => k.isActive)
+      : [];
     const headTechMgmt = isHeadTech ? settings.headTechManagementKPIs.filter((k) => k.isActive) : [];
     return [...common, ...dept, ...leadership, ...headTechMgmt];
-  }, [evaluation, settings, targetEmployee, isTeamLeader, isHeadTech]);
+  }, [evaluation, settings, targetEmployee, isTeamLeader, isHeadTech, isSalesTeamLeaderStructure]);
 
   // Local state for scores. `achieved` only has a value for a measurementType === 'METRIC'
   // KPI (e.g. actual AOV = 2600) — it drives `score` automatically (see
@@ -302,9 +315,10 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       activeKpis,
       isTeamLeader ? 'Team Leader' : targetEmployee.level,
       targetEmployee.isHeadTechnical || false,
-      classifications
+      classifications,
+      isSalesTeamLeaderStructure
     );
-  }, [scoresState, activeKpis, targetEmployee, classifications, evaluation, isLocked]);
+  }, [scoresState, activeKpis, targetEmployee, classifications, evaluation, isLocked, isSalesTeamLeaderStructure]);
 
   const handleScoreChange = (kpiId: string, newScore: number) => {
     if (isLocked) return;
