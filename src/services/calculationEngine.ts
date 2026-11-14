@@ -106,7 +106,7 @@ export class CalculationEngine {
    * Calculates individual contributions and final scores based on level, role, and category weights.
    */
   public static calculateScores(
-    scoresInput: Array<{ kpiId: string; score: number; notes?: string }>,
+    scoresInput: Array<{ kpiId: string; score: number; notes?: string; achieved?: number; target?: number }>,
     kpiDefinitions: KPIDefinition[],
     level: EmployeeLevel,
     isHeadTechnical: boolean = false,
@@ -155,6 +155,8 @@ export class CalculationEngine {
         weight: Number(effectiveWeight.toFixed(2)),
         weightedContribution,
         notes: input.notes || '',
+        achieved: input.achieved,
+        target: input.target,
       });
     }
 

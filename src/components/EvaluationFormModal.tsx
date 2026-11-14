@@ -28,6 +28,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { CalculationEngine } from '../services/calculationEngine';
+import { SalesCalculationEngine } from '../services/salesCalculationEngine';
 import { ARABIC_STATUSES, ARABIC_CLASSIFICATIONS } from '../locales/ar';
 import { AiRecommendationsModal } from './AiRecommendationsModal';
 import { printEvaluationReport } from '../services/evaluationReportService';
@@ -224,8 +225,11 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     return [...common, ...dept, ...leadership, ...headTechMgmt];
   }, [evaluation, settings, targetEmployee, isTeamLeader, isHeadTech]);
 
-  // Local state for scores
-  const [scoresState, setScoresState] = useState<Record<string, { score: number; notes: string }>>({});
+  // Local state for scores. `achieved` only has a value for a measurementType === 'METRIC'
+  // KPI (e.g. actual AOV = 2600) — it drives `score` automatically (see
+  // handleAchievedChange) and is kept alongside it so a saved evaluation still shows the
+  // real typed number on reopen, not just the score it produced.
+  const [scoresState, setScoresState] = useState<Record<string, { score: number; notes: string; achieved?: number }>>({});
   const [strengths, setStrengths] = useState(evaluation?.strengths || '');
   const [improvements, setImprovements] = useState(evaluation?.improvements || '');
   const [developmentActions, setDevelopmentActions] = useState(evaluation?.developmentActions || '');
@@ -242,16 +246,21 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
 
   // Initialize scores
   useEffect(() => {
-    const initial: Record<string, { score: number; notes: string }> = {};
+    const initial: Record<string, { score: number; notes: string; achieved?: number }> = {};
     const savedScores = new Map<string, EvaluationScoreItem>(
       (evaluation?.scores || []).map((s) => [s.kpiId, s])
     );
     activeKpis.forEach((k) => {
       const saved = savedScores.get(k.id);
       if (saved) {
-        initial[k.id] = { score: saved.score, notes: saved.notes || '' };
+        initial[k.id] = { score: saved.score, notes: saved.notes || '', achieved: saved.achieved };
       } else if (!isLocked) {
-        initial[k.id] = { score: 8, notes: '' }; // Default whole score 8
+        // METRIC KPIs start with no typed number yet (score 0, "not entered") instead of
+        // the RUBRIC default of 8 — defaulting a metric to "meets target" before the
+        // evaluator has typed an actual figure would misrepresent real performance data.
+        initial[k.id] = k.measurementType === 'METRIC'
+          ? { score: 0, notes: '', achieved: undefined }
+          : { score: 8, notes: '' }; // Default whole score 8
       }
     });
     setScoresState(initial);
@@ -275,11 +284,18 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       };
     }
 
-    const inputList = Object.entries(scoresState).map(([kpiId, val]) => ({
-      kpiId,
-      score: (val as { score: number; notes: string }).score,
-      notes: (val as { score: number; notes: string }).notes,
-    }));
+    const inputList = Object.entries(scoresState).map(
+      ([kpiId, val]: [string, { score: number; notes: string; achieved?: number }]) => {
+        const kpi = activeKpis.find((k) => k.id === kpiId);
+        return {
+          kpiId,
+          score: val.score,
+          notes: val.notes,
+          achieved: val.achieved,
+          target: kpi?.measurementType === 'METRIC' ? kpi.targetValue : undefined,
+        };
+      }
+    );
 
     return CalculationEngine.calculateScores(
       inputList,
@@ -295,6 +311,33 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     setScoresState((prev) => ({
       ...prev,
       [kpiId]: { ...prev[kpiId], score: Math.max(1, Math.min(10, Math.round(newScore))) },
+    }));
+  };
+
+  // For a measurementType === 'METRIC' KPI (AOV, net collection, ...): the evaluator
+  // types the real achieved number directly instead of picking 1-10 by feel. The score
+  // that feeds the rest of the calculation (weightedContribution = score/10 * weight) is
+  // derived automatically from achieved ÷ target, same ratio math SalesCalculationEngine
+  // already uses for the Sales module's monthly-actuals flow — kept in sync so a manual
+  // number here and an automatically-recorded one later produce the same score for the
+  // same achieved/target pair. 'سرعة أول رد' (kpi-sales-ts-3) is the one "lower is
+  // better" METRIC KPI today (seconds — faster is better), mirroring the same special
+  // case in SalesCalculationEngine.readActualForKpi.
+  const handleAchievedChange = (kpi: KPIDefinition, achieved: number | null) => {
+    if (isLocked) return;
+    if (achieved === null || Number.isNaN(achieved)) {
+      setScoresState((prev) => ({ ...prev, [kpi.id]: { ...prev[kpi.id], achieved: undefined, score: 0 } }));
+      return;
+    }
+    const result = SalesCalculationEngine.scoreMetricKpi(kpi, achieved, {
+      lowerIsBetter: kpi.id === 'kpi-sales-ts-3',
+    });
+    const derivedScore = result.isApplicable
+      ? Math.max(1, Math.min(10, Math.round((result.pointsAwarded / kpi.weight) * 10)))
+      : 0;
+    setScoresState((prev) => ({
+      ...prev,
+      [kpi.id]: { ...prev[kpi.id], achieved, score: derivedScore },
     }));
   };
 
@@ -1074,7 +1117,9 @@ Return valid JSON only, using this structure:
 
   // Helper row renderer for individual KPIs
   function renderKpiRow(kpi: KPIDefinition) {
+    const isMetricKpi = kpi.measurementType === 'METRIC' && kpi.targetValue !== undefined;
     const currentScore = scoresState[kpi.id]?.score || 8;
+    const currentAchieved = scoresState[kpi.id]?.achieved;
     const isGuideOpen = activeGuideKpiId === kpi.id;
 
     return (
@@ -1109,30 +1154,57 @@ Return valid JSON only, using this structure:
             </p>
           </div>
 
-          {/* Score Selector (Integers 1..10) */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-              <button
-                key={num}
-                type="button"
-                disabled={isLocked}
-                onClick={() => handleScoreChange(kpi.id, num)}
-                className={`h-8 w-8 rounded-xl text-xs font-bold transition-all ${
-                  currentScore === num
-                    ? num >= 9
-                      ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 scale-105 border border-emerald-400'
-                      : num >= 7
-                      ? 'bg-teal-500 text-white shadow-lg shadow-teal-500/30 scale-105 border border-teal-400'
-                      : num >= 5
-                      ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30 scale-105 border border-amber-400'
-                      : 'bg-rose-500 text-white shadow-lg shadow-rose-500/30 scale-105 border border-rose-400'
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/10'
-                } disabled:cursor-not-allowed`}
-              >
-                {num}
-              </button>
-            ))}
-          </div>
+          {/* Score input: a direct typed number for a METRIC KPI (AOV, collection, ...),
+              or the 1-10 rubric buttons for every other (RUBRIC) KPI as before. */}
+          {isMetricKpi ? (
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  dir="ltr"
+                  disabled={isLocked}
+                  value={currentAchieved ?? ''}
+                  onChange={(e) =>
+                    handleAchievedChange(kpi, e.target.value === '' ? null : Number(e.target.value))
+                  }
+                  placeholder="الرقم الفعلي"
+                  className="w-28 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-right text-xs font-bold text-white placeholder:text-slate-500 focus:border-teal-400 focus:outline-none disabled:cursor-not-allowed"
+                />
+                {kpi.metricUnit && (
+                  <span className="text-[10px] text-slate-400">{kpi.metricUnit}</span>
+                )}
+              </div>
+              <span className="text-[10px] text-slate-400">
+                {currentAchieved === undefined
+                  ? `التارجت: ${kpi.targetValue}`
+                  : `التارجت: ${kpi.targetValue} — النتيجة المحسوبة: ${currentScore}/10`}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                <button
+                  key={num}
+                  type="button"
+                  disabled={isLocked}
+                  onClick={() => handleScoreChange(kpi.id, num)}
+                  className={`h-8 w-8 rounded-xl text-xs font-bold transition-all ${
+                    currentScore === num
+                      ? num >= 9
+                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 scale-105 border border-emerald-400'
+                        : num >= 7
+                        ? 'bg-teal-500 text-white shadow-lg shadow-teal-500/30 scale-105 border border-teal-400'
+                        : num >= 5
+                        ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30 scale-105 border border-amber-400'
+                        : 'bg-rose-500 text-white shadow-lg shadow-rose-500/30 scale-105 border border-rose-400'
+                      : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/10'
+                  } disabled:cursor-not-allowed`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+          )}
 
         </div>
 

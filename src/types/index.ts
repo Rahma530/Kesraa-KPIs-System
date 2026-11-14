@@ -123,6 +123,12 @@ export interface EvaluationScoreItem {
   weight: number; // Stored for calculation & historical lock, hidden from evaluator UI
   weightedContribution: number; // (score / 10) * weight
   notes?: string;
+  // Only set for a measurementType === 'METRIC' KPI: the raw number the evaluator typed
+  // in (e.g. actual AOV = 2600) and the target it was compared against, kept alongside
+  // the derived 1-10 `score` so a saved evaluation still shows the real figures on
+  // reopen, not just the score they produced.
+  achieved?: number;
+  target?: number;
 }
 
 export interface EvaluationAIRecommendations {
