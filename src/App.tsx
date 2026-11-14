@@ -19,6 +19,7 @@ import { SalesDashboardView } from './components/SalesDashboardView';
 import { Evaluation, Employee, EvaluationQuarter, SystemRole } from './types';
 import { AuthorizationCapability, hasAuthorizationCapabilityForDepartment } from './auth/authorization';
 import { StorageService } from './services/storageService';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Layout component containing Navbar, Footer, and Modals
 const AppLayout: React.FC = () => {
@@ -443,12 +444,14 @@ const AppRoutes: React.FC = () => {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <DataProvider>
-          <AppRoutes />
-        </DataProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <DataProvider>
+            <AppRoutes />
+          </DataProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }

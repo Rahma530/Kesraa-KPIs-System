@@ -120,7 +120,17 @@ export class StorageService {
   public static getDepartments(): Department[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.DEPARTMENTS);
-      const departments: Department[] = data ? JSON.parse(data) : INITIAL_DEPARTMENTS;
+      let departments: Department[] = data ? JSON.parse(data) : INITIAL_DEPARTMENTS;
+      // Same stale-cache issue as getEmployees above — a cache seeded before
+      // dept-sales existed in INITIAL_DEPARTMENTS would otherwise never pick it up.
+      if (data) {
+        const cachedIds = new Set(departments.map((department) => department.id));
+        const missingFromCache = INITIAL_DEPARTMENTS.filter((department) => !cachedIds.has(department.id));
+        if (missingFromCache.length > 0) {
+          departments = [...departments, ...missingFromCache];
+          localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(departments));
+        }
+      }
       return departments
         .filter((department) => department.id !== MANAGERIAL_DEPARTMENT_ID)
         .map(normalizeDepartment);
@@ -139,10 +149,24 @@ export class StorageService {
   public static getEmployees(): Employee[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-      const parsedEmployees: Employee[] = data ? JSON.parse(data) : INITIAL_EMPLOYEES;
+      let parsedEmployees: Employee[] = data ? JSON.parse(data) : INITIAL_EMPLOYEES;
+      // A browser whose EMPLOYEES cache was seeded before a fake role existed in
+      // INITIAL_EMPLOYEES (e.g. the dept-sales test roles) would otherwise never see
+      // it, forever, since the cache branch above never re-reads the current source
+      // file once it exists. Fill in any INITIAL_EMPLOYEES id missing from the cache —
+      // this never overwrites a real/edited record, only adds ones that are absent.
+      let mergedMissingEmployees = false;
+      if (data) {
+        const cachedIds = new Set(parsedEmployees.map((employee) => employee.id));
+        const missingFromCache = INITIAL_EMPLOYEES.filter((employee) => !cachedIds.has(employee.id));
+        if (missingFromCache.length > 0) {
+          parsedEmployees = [...parsedEmployees, ...missingFromCache];
+          mergedMissingEmployees = true;
+        }
+      }
       const containedLegacyPasswords = parsedEmployees.some((employee) => 'password' in employee);
       const employees = removeLegacyEmployeePasswords(parsedEmployees);
-      if (data && containedLegacyPasswords) {
+      if (data && (containedLegacyPasswords || mergedMissingEmployees)) {
         localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
       }
       return employees.map(normalizeEmployeeDepartment).map(normalizeEmployeeRole);
