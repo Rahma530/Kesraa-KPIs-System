@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { EvaluationQuarter } from '../types';
 import { ADDITIONAL_PERMISSION_LABELS, ARABIC_ROLES, ARABIC_QUARTERS, t } from '../locales/ar';
+import { hasAuthorizationCapabilityForDepartment } from '../auth/authorization';
 
 export const Navbar: React.FC = () => {
   const {
@@ -245,6 +246,24 @@ export const Navbar: React.FC = () => {
             >
               <Users className="h-4 w-4 text-teal-400" />
               My Team
+            </Link>
+          )}
+
+          {/* Sales Dashboard - only for whoever actually holds VIEW_ALL_EVALUATIONS
+              over dept-sales (Sales Manager, Head Of Sales). A regular Team Leader
+              in any other department never sees this tab. */}
+          {currentUser?.systemRole === 'TEAM_LEADER' &&
+            hasAuthorizationCapabilityForDepartment(currentUser, 'VIEW_ALL_EVALUATIONS', 'dept-sales') && (
+            <Link
+              to={`${base}/sales-dashboard`}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all whitespace-nowrap ${
+                currentPath === `${base}/sales-dashboard`
+                  ? 'bg-teal-500/12 text-white border border-teal-500/30 shadow-sm shadow-teal-500/10'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+              }`}
+            >
+              <Layers className="h-4 w-4 text-teal-400" />
+              Sales Dashboard
             </Link>
           )}
 

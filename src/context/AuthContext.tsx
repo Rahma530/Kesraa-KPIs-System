@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AuthChangeEvent, User } from '@supabase/supabase-js';
-import { AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
+import { AdditionalPermissionScope, AdditionalSystemPermission, Employee, EmployeeLevel, Evaluation, SystemRole } from '../types';
 import { initialPasswordSetupCallback, supabase } from '../lib/supabase';
-import { isEvaluableEmployee } from '../utils/departmentNames';
+import { isEvaluableEmployee, isWithinTeamLeaderScope } from '../utils/departmentNames';
+import { StorageService } from '../services/storageService';
+import { INITIAL_EMPLOYEES } from '../config/initialData';
 import {
   AuthorizationCapability,
   hasAuthorizationCapability,
+  hasAuthorizationCapabilityForDepartment,
   isTechnicalReviewer as isTechnicalReviewerEmployee,
   VALID_ADDITIONAL_PERMISSIONS,
 } from '../auth/authorization';
@@ -20,6 +23,19 @@ export interface AuthContextType {
   authError: string;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** DEV-ONLY: signs in as a local fake employee from StorageService.getEmployees()
+   * (which is INITIAL_EMPLOYEES until localStorage is seeded) without touching
+   * Supabase Auth at all. Guarded by import.meta.env.DEV below, so calling it in a
+   * production build is a no-op — it can never reach system.kesraa.com. This exists
+   * only because no real Supabase Auth account exists for the fake Sales roles
+   * (Sales Manager, Head Of Sales, Head Of TeleSales), so there is no other way to
+   * test as them locally. */
+  loginAsLocalTestEmployee: (employeeId: string) => void;
+  /** True only while the current session came from loginAsLocalTestEmployee (no real
+   * Supabase Auth session exists). DataContext reads this to source employees/
+   * evaluations from local storage instead of the Supabase-authoritative calls, which
+   * would otherwise fail/return empty for a session with no real Supabase Auth token. */
+  isLocalTestSession: boolean;
   clearAuthError: () => void;
   finishPasswordSetup: () => void;
   canManageSettings: () => boolean;
@@ -80,6 +96,22 @@ const getAdditionalPermissions = (user: User): AdditionalSystemPermission[] => {
   );
 };
 
+// Reads the department scope for an ADMIN grant, the same way getAdditionalPermissions
+// reads the grant itself — from Auth app_metadata, never from the employees table or
+// any client-controlled state, matching the existing "ADMIN comes exclusively from
+// app_metadata" rule. Absent or malformed metadata means "no scope", which
+// hasAuthorizationCapabilityForDepartment already treats as system-wide (today's
+// unrestricted behavior) — so an employee with nothing set here is unaffected.
+const getAdditionalPermissionScope = (user: User): AdditionalPermissionScope | undefined => {
+  const rawScope = user.app_metadata?.additional_permission_scope;
+  if (!rawScope || typeof rawScope !== 'object' || Array.isArray(rawScope)) return undefined;
+  const departmentIds = (rawScope as { departmentIds?: unknown }).departmentIds;
+  if (!Array.isArray(departmentIds) || departmentIds.length === 0) return undefined;
+  const validIds = departmentIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (validIds.length === 0) return undefined;
+  return { departmentIds: validIds };
+};
+
 const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
   const { data: profileData, error: profileError } = await supabase
     .from('employees')
@@ -125,6 +157,7 @@ const resolveEmployeeProfile = async (authUser: User): Promise<Employee> => {
     id: profile.id,
     accountEnabled: true,
     additionalPermissions: getAdditionalPermissions(authUser),
+    additionalPermissionScope: getAdditionalPermissionScope(authUser),
     name: profile.name,
     email: profile.email,
     phone: profile.phone || undefined,
@@ -152,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initialPasswordSetupCallback.error
   );
   const [authError, setAuthError] = useState('');
+  const [isLocalTestSession, setIsLocalTestSession] = useState(false);
   const passwordSetupFlowRef = useRef(isPasswordSetupFlow);
 
   const updatePasswordSetupFlow = (active: boolean) => {
@@ -165,11 +199,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearAuthenticatedProfile = () => {
     setCurrentUser(null);
+    setIsLocalTestSession(false);
   };
 
   const loadAuthenticatedProfile = async (authUser: User) => {
     const employee = await resolveEmployeeProfile(authUser);
     setCurrentUser(employee);
+    setIsLocalTestSession(false); // Always a real Supabase session on this path.
     return employee;
   };
 
@@ -283,6 +319,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginAsLocalTestEmployee = (employeeId: string): void => {
+    if (!import.meta.env.DEV) return; // No-op outside local dev — never usable in production.
+    // Falls back to INITIAL_EMPLOYEES when the id isn't in StorageService's list —
+    // a browser whose localStorage was seeded before a fake role existed in
+    // initialData.ts would otherwise never find it, even though LoginView shows it.
+    const employee =
+      StorageService.getEmployees().find((emp) => emp.id === employeeId) ??
+      INITIAL_EMPLOYEES.find((emp) => emp.id === employeeId);
+    if (!employee) return;
+    setAuthError('');
+    setCurrentUser(employee);
+    setIsLocalTestSession(true);
+  };
+
   const logout = async (): Promise<void> => {
     const { error } = await supabase.auth.signOut();
     clearAuthenticatedProfile();
@@ -320,20 +370,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser || !currentUser.isActive) return false;
     if (!isEvaluableEmployee(target)) return false;
     if (currentUser.id === target.id) return false;
-    if (hasCapability('EVALUATE_ALL_EMPLOYEES')) return true;
+    // Department-aware, not the plain hasCapability('EVALUATE_ALL_EMPLOYEES'): a
+    // Technical-scoped Head Technical/CEO must say yes for target's own department
+    // and no for dept-sales (and the reverse for a Sales-scoped Sales Manager/Head Of
+    // Sales) — the plain, department-unaware capability check can't tell those apart.
+    if (hasAuthorizationCapabilityForDepartment(currentUser, 'EVALUATE_ALL_EMPLOYEES', target.departmentId)) {
+      return true;
+    }
     if (currentUser.systemRole === 'TEAM_LEADER') {
-      return currentUser.departmentId === target.departmentId;
+      // isWithinTeamLeaderScope also narrows a TeleSales Team Leader (Head Of
+      // TeleSales) to التيلي سيلز only inside dept-sales; every other department
+      // keeps its plain department match, unchanged.
+      return isWithinTeamLeaderScope(currentUser, target);
     }
     return false;
   };
 
   const canViewEvaluation = (evalItem: Evaluation): boolean => {
     if (!currentUser) return false;
-    if (hasCapability('VIEW_ALL_EVALUATIONS')) return true;
+    // Same department-aware reasoning as canEvaluateEmployee above.
+    if (hasAuthorizationCapabilityForDepartment(currentUser, 'VIEW_ALL_EVALUATIONS', evalItem.departmentId)) {
+      return true;
+    }
     if (currentUser.systemRole === 'TEAM_LEADER') {
       // A team leader never sees their own evaluation — that is management's call.
       if (evalItem.employeeId === currentUser.id) return false;
-      return currentUser.departmentId === evalItem.departmentId;
+      return isWithinTeamLeaderScope(currentUser, evalItem);
     }
     return false;
   };
@@ -358,6 +420,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authError,
         login,
         logout,
+        loginAsLocalTestEmployee,
+        isLocalTestSession,
         clearAuthError: () => setAuthError(''),
         finishPasswordSetup: () => updatePasswordSetupFlow(false),
         canManageSettings,

@@ -11,6 +11,18 @@ export type SystemRole =
 
 export type AdditionalSystemPermission = 'ADMIN';
 
+// Added for the Sales/TeleSales module: lets the ADMIN additional permission be limited
+// to one or more departments instead of the whole system. An employee with ADMIN and no
+// scope keeps today's system-wide behavior — nothing changes for them. An employee with
+// ADMIN and a scope (e.g. the Sales Manager / Head Of Sales, scoped to dept-sales; or,
+// for local testing, an existing admin re-scoped to every department except Sales) only
+// gets ADMIN-level capabilities for evaluations/employees inside the listed departments.
+// A list (not a single id) because one admin's scope can span several departments at
+// once — e.g. "every department except Sales".
+export interface AdditionalPermissionScope {
+  departmentIds: string[];
+}
+
 export type EmployeeLevel = 'Junior' | 'Mid' | 'Senior' | 'Team Leader';
 
 export type EvaluationQuarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
@@ -37,6 +49,13 @@ export interface LevelExpectations {
   teamLeader: string;
 }
 
+// Added for the Sales/TeleSales module: most existing KPIs are judged by a human
+// evaluator against the text bands in scoringGuide (RUBRIC — the only behavior that
+// existed before). A METRIC KPI is instead computed automatically from an actual
+// number recorded for the employee/month, compared against targetValue.
+export type KPIMeasurementType = 'RUBRIC' | 'METRIC';
+export type KPIMetricUnit = 'SAR' | 'COUNT' | 'PERCENT' | 'SECONDS';
+
 export interface KPIDefinition {
   id: string;
   name: string;
@@ -49,6 +68,19 @@ export interface KPIDefinition {
   scoringGuide: ScoringRubric;
   levelExpectations?: LevelExpectations;
   isActive: boolean;
+  // Omitted/undefined is treated as 'RUBRIC', so every existing KPI keeps behaving
+  // exactly as it does today without needing to be touched.
+  measurementType?: KPIMeasurementType;
+  metricUnit?: KPIMetricUnit;
+  // Monthly target used only when measurementType === 'METRIC' (e.g. 30 meetings,
+  // 20000 SAR, 80 for an 80% conversion target).
+  targetValue?: number;
+  // True only for a METRIC KPI whose own written policy explicitly allows "not
+  // applicable this period" (today: AOV's "بدون صفقات هذا الشهر = غير منطبق" — no
+  // applicable deals this period means the KPI is excluded from the evaluation
+  // entirely, not scored as 0 and not given full credit). Lets the evaluator mark it
+  // N/A instead of typing a number. Omitted/undefined = this KPI has no N/A case.
+  supportsNotApplicable?: boolean;
 }
 
 export interface Department {
@@ -66,6 +98,9 @@ export interface Employee {
   authUserId?: string;
   accountEnabled?: boolean;
   additionalPermissions?: AdditionalSystemPermission[];
+  // Optional department scope for the ADMIN additional permission above. See
+  // AdditionalPermissionScope for the exact meaning (absent = system-wide, as today).
+  additionalPermissionScope?: AdditionalPermissionScope;
   name: string;
   email: string;
   departmentId: string;
@@ -90,10 +125,26 @@ export interface EvaluationScoreItem {
   kpiId: string;
   kpiName: string;
   category: KPICategory;
-  score: number; // 1 - 10 integer
+  // 1-10 integer for a RUBRIC KPI (picked by the evaluator). For a METRIC KPI this is a
+  // precise 0-10 decimal derived from achieved ÷ target, kept unrounded so the real
+  // typed figure (achieved/target) isn't lost to integer rounding — see achieved/target
+  // below for the actual numbers behind it.
+  score: number;
   weight: number; // Stored for calculation & historical lock, hidden from evaluator UI
   weightedContribution: number; // (score / 10) * weight
   notes?: string;
+  // Only set for a measurementType === 'METRIC' KPI: the raw number the evaluator typed
+  // in (e.g. actual AOV = 2600) and the target it was compared against, kept alongside
+  // the derived 1-10 `score` so a saved evaluation still shows the real figures on
+  // reopen, not just the score they produced.
+  achieved?: number;
+  target?: number;
+  // False only when the evaluator explicitly marked this KPI "N/A" for the period (see
+  // KPIDefinition.supportsNotApplicable) — its weight is excluded from the evaluation's
+  // total entirely (CalculationEngine does not count it toward or against the score).
+  // Omitted/undefined is treated as true (applicable), so every existing/RUBRIC KPI
+  // keeps behaving exactly as it does today.
+  isApplicable?: boolean;
 }
 
 export interface EvaluationAIRecommendations {
@@ -250,6 +301,61 @@ export interface AuditLog {
   previousValue?: string;
   newValue?: string;
   timestamp: string;
+  /** Which department this action belongs to, when it has one (currently only
+   * EVALUATION entries carry it — a settings change or a full backup/restore
+   * is a whole-system action with no single department). Lets a module-scoped
+   * dashboard (Sales, Technical) show its own slice of activity without ever
+   * exposing the company-wide Audit Log. */
+  departmentId?: string;
+}
+
+// Added for the Sales/TeleSales module: the actual numbers a Team Leader records for one
+// employee in one calendar month. This is what METRIC KPIs are computed from — nothing
+// else in the system reads or writes this today. All fields are optional per employee
+// because an individual TeleSales agent, a TeleSales Team Leader, a Sales agent and a
+// Sales Team Leader each only fill in the subset of metrics that applies to their role.
+export interface SalesMonthlyActuals {
+  id: string;
+  employeeId: string;
+  month: number; // 1-12
+  year: number;
+
+  // التيلي سيلز (individual)
+  dataMeetingsActual?: number;          // اجتماعات الداتا الفعلية
+  leadsReceived?: number;               // إجمالي الليدز المستلمة في الشهر
+  leadsConvertedToAttendance?: number;  // الليدز اللي حضرت فعليًا خلال 14 يوم
+  leadWindowClosesAt?: string;          // ISO date: متى تنتهي مهلة الـ14 يوم لآخر Lead في الشهر
+  avgFirstResponseSeconds?: number;     // متوسط سرعة أول رد بالثانية
+
+  // تيم ليدر تيلي سيلز (team aggregate — totals across the whole team, not an average)
+  teamMeetingsActual?: number;
+  teamLeadsReceived?: number;
+  teamLeadsConvertedToAttendance?: number;
+
+  // السيلز (individual)
+  grossCollectionInclTax?: number;      // التحصيل المؤهل شامل الضريبة
+  refunds?: number;                     // الاسترداد في نفس الشهر
+  dealsCount?: number;                  // عدد الصفقات المغلقة (لحساب AOV)
+  dealsValueTotal?: number;             // إجمالي قيمة الصفقات (لحساب AOV)
+
+  // تيم ليدر سيلز (own collection uses the same fields above, plus:)
+  newHireCollection?: number;           // تحصيل الموظف الجديد اللي بيتابعه
+
+  recordedBy: string;                   // employeeId بتاع التيم ليدر اللي دخل الأرقام
+  createdAt: string;
+  updatedAt: string;
+}
+
+// One computed KPI result for one employee/month, returned by the Sales calculation
+// engine (added separately). Kept distinct from EvaluationScoreItem because a METRIC
+// result carries N/A and "provisional" states that a manual 1-10 score never has.
+export interface SalesMetricResult {
+  kpiId: string;
+  achieved: number | null;   // null when the metric has no applicable cases this month
+  target: number | null;
+  isApplicable: boolean;     // false => "غير منطبق" (N/A) — excluded from the total, not scored as 0
+  isProvisional: boolean;    // true while the 14-day lead window is still open
+  pointsAwarded: number;     // 0 when isApplicable is false
 }
 
 export interface DepartmentSummary {

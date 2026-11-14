@@ -10,6 +10,7 @@ const ENGLISH_DEPARTMENT_NAMES: Record<string, string> = {
   'dept-cr': 'Creative',
   'dept-ai': 'AI & Automation',
   'dept-mg': 'Managerial',
+  'dept-sales': 'Sales',
 };
 
 export const getEnglishDepartmentName = (departmentId: string, fallback = ''): string =>
@@ -33,6 +34,41 @@ export const normalizeEvaluationDepartment = (evaluation: Evaluation): Evaluatio
   departmentName: getEnglishDepartmentName(evaluation.departmentId, evaluation.departmentName),
 });
 
+export type SalesTrack = 'TeleSales' | 'Sales';
+
+// Which of the two Sales-department tracks a (normalized) role string belongs to, or
+// null outside dept-sales. Unanchored (not just "starts with") because the real role
+// strings are now "Head Of Sales" / "Head Of Tele-Sales" — the track word is no longer
+// at the start of the string, unlike the old "Sales Team Leader" / "TeleSales Team
+// Leader" titles.
+export const getSalesTrack = (role: string): SalesTrack | null => {
+  if (/tele[\s-]*sales/i.test(role)) return 'TeleSales';
+  if (/sales/i.test(role)) return 'Sales';
+  return null;
+};
+
+// Whether currentUser (a Team Leader, or a department-scoped admin) may manage/view
+// the given target employee or evaluation. Outside dept-sales this is exactly the
+// department match every Team Leader screen already used. Inside dept-sales it also
+// enforces the business's stated hierarchy: Head Of Tele-Sales only manages التيلي
+// سيلز, while Head Of Sales manages the whole Sales department, both tracks — so a
+// plain department match would wrongly let the TeleSales lead manage Sales agents too.
+// Sales Manager sits above both of them (org-chart-senior, not a managed team member of
+// either), so she is excluded from every Team Leader's scope outright — without this, a
+// Team Leader with "Sales" track (getSalesTrack matches "Sales Manager" too, since her
+// title also contains the word "Sales") would otherwise see the Sales Manager listed as
+// one of her own team members, which is backwards.
+export const isWithinTeamLeaderScope = (
+  currentUser: Pick<Employee, 'departmentId' | 'role'>,
+  target: { departmentId: string; role: string }
+): boolean => {
+  if (target.departmentId !== currentUser.departmentId) return false;
+  if (currentUser.departmentId !== 'dept-sales') return true;
+  if (/sales\s*manager/i.test(target.role)) return false;
+  if (getSalesTrack(currentUser.role) === 'Sales') return true;
+  return getSalesTrack(currentUser.role) === getSalesTrack(target.role);
+};
+
 export const isEvaluableEmployee = (employee: Employee): boolean =>
   employee.departmentId !== MANAGERIAL_DEPARTMENT_ID &&
   !['ADMIN', 'HR', 'CEO'].includes(employee.systemRole);
@@ -51,6 +87,14 @@ export const getRoleOptions = (departmentId: string): string[] => {
       return ['AI Engineer'];
     case 'dept-seo':
       return ['SEO Team Leader', 'SEO Specialist', 'Web Developer', 'Content Creator'];
+    case 'dept-sales':
+      return [
+        'Sales Manager',
+        'Head Of Tele-Sales',
+        'TeleSales Agent',
+        'Head Of Sales',
+        'Sales Agent',
+      ];
     default:
       return [];
   }
@@ -85,6 +129,18 @@ export const getStandardRole = (
       return 'AI Engineer';
     case 'dept-seo':
       return isTeamLeader ? 'SEO Team Leader' : currentRole;
+    case 'dept-sales': {
+      // Sales Manager sits above both tracks and keeps its own title — it must
+      // never be folded down into "Head Of Sales" just because its level is
+      // Team Leader, the same way Head Of Technical is special-cased above.
+      if (/sales\s*manager/i.test(currentRole)) return 'Sales Manager';
+      // Two tracks inside one department (التيلي سيلز vs السيلز) — inferred from the
+      // current role text the same way dept-cr tells a Video Editor from a Graphic
+      // Designer above, since Employee has no separate "track" field of its own.
+      const isTeleSalesTrack = /tele[\s-]*sales/i.test(currentRole);
+      if (isTeleSalesTrack) return isTeamLeader ? 'Head Of Tele-Sales' : 'TeleSales Agent';
+      return isTeamLeader ? 'Head Of Sales' : 'Sales Agent';
+    }
     default:
       return currentRole;
   }

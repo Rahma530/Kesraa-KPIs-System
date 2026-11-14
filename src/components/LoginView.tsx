@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ShieldCheck, Mail, Lock, LockOpen, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, Mail, Lock, LockOpen, ArrowLeft, FlaskConical } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { StorageService } from '../services/storageService';
+import { INITIAL_EMPLOYEES } from '../config/initialData';
 
 export const LoginView: React.FC = () => {
-  const { login, authError, clearAuthError } = useAuth();
+  const { login, authError, clearAuthError, loginAsLocalTestEmployee } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -12,6 +14,31 @@ export const LoginView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [resetRequestComplete, setResetRequestComplete] = useState(false);
+
+  // DEV-ONLY: lets you sign in as any Sales/TeleSales fake employee without a
+  // password, by setting currentUser directly — no Supabase Auth call at all.
+  // Scoped to dept-sales only: Technical employees never log in with admin-level
+  // roles themselves (only the real account holders do, via normal Supabase
+  // login), so there is nothing to test there — this panel exists solely to try
+  // out the new Sales module roles before merging into main. import.meta.env.DEV
+  // is false in the production build, so this list is simply never computed and
+  // the panel never renders outside `npm run dev`.
+  //
+  // Sourced from StorageService first (so edits made inside the app still show
+  // up), then filled in from INITIAL_EMPLOYEES for any dept-sales fake role not
+  // already in that list — this covers a browser that seeded its localStorage
+  // from an older copy of initialData.ts, before these fake roles existed there,
+  // so it would otherwise never pick them up.
+  const storedSalesEmployees = import.meta.env.DEV
+    ? StorageService.getEmployees().filter((e) => e.isActive && e.departmentId === 'dept-sales')
+    : [];
+  const storedSalesIds = new Set(storedSalesEmployees.map((e) => e.id));
+  const fallbackSalesEmployees = import.meta.env.DEV
+    ? INITIAL_EMPLOYEES.filter(
+        (e) => e.isActive && e.departmentId === 'dept-sales' && !storedSalesIds.has(e.id)
+      )
+    : [];
+  const localTestEmployees = [...storedSalesEmployees, ...fallbackSalesEmployees];
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,6 +233,36 @@ export const LoginView: React.FC = () => {
             )}
           </form>
         </div>
+
+        {import.meta.env.DEV && (
+          <div
+            className="mt-6 w-full max-w-lg rounded-3xl border border-amber-500/30 p-5 sm:p-6"
+            style={{ background: 'rgba(15, 23, 42, 0.96)' }}
+          >
+            <div className="mb-3 flex items-center gap-2 text-amber-300">
+              <FlaskConical className="h-4 w-4" />
+              <p className="text-xs font-bold uppercase tracking-wider">
+                Local Test Login (DEV ONLY — never appears in production)
+              </p>
+            </div>
+            <p className="mb-3 text-[11px] text-slate-400">
+              Sign in directly as any Sales/TeleSales fake role, no password needed. This bypasses Supabase Auth entirely — it only exists to test the new Sales module locally before merging into main.
+            </p>
+            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+              {localTestEmployees.map((emp) => (
+                <button
+                  key={emp.id}
+                  type="button"
+                  onClick={() => loginAsLocalTestEmployee(emp.id)}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-left text-xs text-slate-200 transition-colors hover:border-amber-500/40 hover:bg-amber-500/10"
+                >
+                  <span className="font-semibold">{emp.name}</span>
+                  <span className="text-slate-500">{emp.role} · {emp.departmentName}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

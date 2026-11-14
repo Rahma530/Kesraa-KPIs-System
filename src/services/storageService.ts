@@ -120,7 +120,17 @@ export class StorageService {
   public static getDepartments(): Department[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.DEPARTMENTS);
-      const departments: Department[] = data ? JSON.parse(data) : INITIAL_DEPARTMENTS;
+      let departments: Department[] = data ? JSON.parse(data) : INITIAL_DEPARTMENTS;
+      // Same stale-cache issue as getEmployees above — a cache seeded before
+      // dept-sales existed in INITIAL_DEPARTMENTS would otherwise never pick it up.
+      if (data) {
+        const cachedIds = new Set(departments.map((department) => department.id));
+        const missingFromCache = INITIAL_DEPARTMENTS.filter((department) => !cachedIds.has(department.id));
+        if (missingFromCache.length > 0) {
+          departments = [...departments, ...missingFromCache];
+          localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, JSON.stringify(departments));
+        }
+      }
       return departments
         .filter((department) => department.id !== MANAGERIAL_DEPARTMENT_ID)
         .map(normalizeDepartment);
@@ -139,10 +149,24 @@ export class StorageService {
   public static getEmployees(): Employee[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-      const parsedEmployees: Employee[] = data ? JSON.parse(data) : INITIAL_EMPLOYEES;
+      let parsedEmployees: Employee[] = data ? JSON.parse(data) : INITIAL_EMPLOYEES;
+      // A browser whose EMPLOYEES cache was seeded before a fake role existed in
+      // INITIAL_EMPLOYEES (e.g. the dept-sales test roles) would otherwise never see
+      // it, forever, since the cache branch above never re-reads the current source
+      // file once it exists. Fill in any INITIAL_EMPLOYEES id missing from the cache —
+      // this never overwrites a real/edited record, only adds ones that are absent.
+      let mergedMissingEmployees = false;
+      if (data) {
+        const cachedIds = new Set(parsedEmployees.map((employee) => employee.id));
+        const missingFromCache = INITIAL_EMPLOYEES.filter((employee) => !cachedIds.has(employee.id));
+        if (missingFromCache.length > 0) {
+          parsedEmployees = [...parsedEmployees, ...missingFromCache];
+          mergedMissingEmployees = true;
+        }
+      }
       const containedLegacyPasswords = parsedEmployees.some((employee) => 'password' in employee);
       const employees = removeLegacyEmployeePasswords(parsedEmployees);
-      if (data && containedLegacyPasswords) {
+      if (data && (containedLegacyPasswords || mergedMissingEmployees)) {
         localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
       }
       return employees.map(normalizeEmployeeDepartment).map(normalizeEmployeeRole);
@@ -687,7 +711,66 @@ export class StorageService {
       recordToSave.id,
       `Evaluation status is now ${recordToSave.status} for ${recordToSave.employeeName} (${recordToSave.quarter} ${recordToSave.year}). Final score: ${recordToSave.finalScore}`,
       prev ? JSON.stringify({ status: prev.status, score: prev.finalScore }) : undefined,
-      JSON.stringify({ status: recordToSave.status, score: recordToSave.finalScore })
+      JSON.stringify({ status: recordToSave.status, score: recordToSave.finalScore }),
+      recordToSave.departmentId
+    );
+
+    return saved;
+  }
+
+  /**
+   * DEV-ONLY local-test counterpart to saveEvaluation above: same id-matching, locking,
+   * and department-rank recalculation, but writes to localStorage instead of Supabase.
+   * Used only when the signed-in session is a Local Test Login (no real Supabase
+   * session to write through), so a test role can create/edit evaluations entirely
+   * offline. Matches by the evaluation's own id only — there is no databaseId/Supabase
+   * row to reconcile against locally.
+   */
+  public static saveEvaluationLocally(
+    evaluation: Evaluation,
+    actorId: string,
+    actorName: string,
+    actorRole: any
+  ): Evaluation {
+    let evaluations = this.getEvaluations();
+    const index = evaluations.findIndex((item) => item.id === evaluation.id);
+    const prev = index >= 0 ? evaluations[index] : undefined;
+    const shouldLock = evaluation.status === 'APPROVED';
+
+    const recordToSave: Evaluation = {
+      ...evaluation,
+      locked: evaluation.locked || shouldLock,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (index >= 0) {
+      evaluations[index] = recordToSave;
+    } else {
+      evaluations.push(recordToSave);
+    }
+
+    evaluations = CalculationEngine.recalculateDepartmentRanks(
+      evaluations,
+      recordToSave.departmentId,
+      recordToSave.quarter,
+      recordToSave.year
+    );
+
+    localStorage.setItem(STORAGE_KEYS.EVALUATIONS, JSON.stringify(evaluations));
+
+    const saved = evaluations.find((item) => item.id === recordToSave.id) || recordToSave;
+
+    AuditService.logAction(
+      actorId,
+      actorName,
+      actorRole,
+      index >= 0 ? `EVALUATION_${recordToSave.status}` : 'EVALUATION_CREATED',
+      'EVALUATION',
+      recordToSave.id,
+      `Evaluation status is now ${recordToSave.status} for ${recordToSave.employeeName} (${recordToSave.quarter} ${recordToSave.year}). Final score: ${recordToSave.finalScore}`,
+      prev ? JSON.stringify({ status: prev.status, score: prev.finalScore }) : undefined,
+      JSON.stringify({ status: recordToSave.status, score: recordToSave.finalScore }),
+      recordToSave.departmentId
     );
 
     return saved;

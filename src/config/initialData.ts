@@ -83,7 +83,28 @@ export const INITIAL_DEPARTMENTS: Department[] = [
     teamLeaderName: 'Reda Fathy',
     isActive: true,
   },
+  // Sales/TeleSales module — FAKE SEED DATA for local testing only, nothing here is a
+  // real employee or touches Supabase. Holds two tracks (roleName 'TeleSales' and
+  // roleName 'Sales'), each with its own Team Leader, so there is no single
+  // teamLeaderId/teamLeaderName for the whole department the way other departments have.
+  {
+    id: 'dept-sales',
+    name: 'Sales',
+    code: 'SALES',
+    description: 'تحصيل المبيعات ومتابعة العملاء عبر مساري التيلي سيلز والسيلز.',
+    isActive: true,
+  },
 ];
+
+// Every department that existed before the Sales module was added — i.e. everything
+// except dept-sales — now grouped under one umbrella scope, "Technical". Used below to
+// scope Reda's and Toqa's existing system-wide ADMIN grant down to this one module, now
+// that Sales is split off as its own, separately-managed module with its own Sales
+// Manager / Head Of Sales. Computed from INITIAL_DEPARTMENTS rather than listed by hand
+// so it stays correct automatically if another non-Sales department is ever added.
+const TECHNICAL_DEPARTMENT_IDS: string[] = INITIAL_DEPARTMENTS
+  .filter((department) => department.id !== 'dept-sales')
+  .map((department) => department.id);
 
 export const INITIAL_CLASSIFICATIONS: PerformanceClassificationConfig[] = [
   {
@@ -1193,6 +1214,381 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     },
     isActive: true,
   },
+
+  // 8. Sales — التيلي سيلز (roleName matches the exact normalized role string so
+  // EvaluationFormModal.selectDepartmentKpis picks this group automatically, same as
+  // every other role-specific group in this file).
+  {
+    id: 'kpi-sales-ts-1',
+    name: 'اجتماعات الداتا (Data Meetings)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'TeleSales Agent',
+    weight: 25,
+    description: 'عدد الاجتماعات الفعلية المحجوزة والمنعقدة من قاعدة الليدز خلال الشهر. المستهدف 30 اجتماعًا شهريًا.',
+    measurementType: 'METRIC',
+    metricUnit: 'COUNT',
+    targetValue: 30,
+    scoringGuide: {
+      excellent: 'محسوب آليًا: النقاط = (العدد الفعلي ÷ 30) × 25، بحد أقصى 25.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-2',
+    name: 'تحويل الـLeads لحضور خلال 14 يومًا (Lead-to-Attendance Conversion)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'TeleSales Agent',
+    weight: 20,
+    description: 'نسبة الليدز اللي حضرت فعليًا خلال 14 يوم من استلامها. المستهدف 80%. تفضل النتيجة مبدئية لحد ما تنتهي مهلة الـ14 يوم لآخر Lead في الشهر.',
+    measurementType: 'METRIC',
+    metricUnit: 'PERCENT',
+    targetValue: 80,
+    scoringGuide: {
+      excellent: 'محسوب آليًا: النقاط = (نسبة التحويل الفعلية ÷ 80%) × 20، بحد أقصى 20، وبعلامة "مبدئي" حتى إغلاق الشهر.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-3',
+    name: 'سرعة أول رد خلال دقيقتين (First Response Speed)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'TeleSales Agent',
+    weight: 5,
+    description: 'متوسط زمن أول رد على الـLead، والمعيار دقيقتان أو أقل.',
+    measurementType: 'METRIC',
+    metricUnit: 'SECONDS',
+    targetValue: 120,
+    scoringGuide: {
+      excellent: 'محسوب آليًا من متوسط زمن الرد الفعلي مقابل 120 ثانية، بحد أقصى 5 نقاط.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-4',
+    name: 'الالتزام بالمتابعات (Follow-up Compliance)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'TeleSales Agent',
+    weight: 5,
+    description: 'نسبة المتابعات المجدولة اللي تمت فعليًا في مواعيدها من إجمالي المتابعات المفروضة.',
+    scoringGuide: {
+      excellent: '9-10: التزام شبه كامل بكل المتابعات المجدولة في مواعيدها.',
+      good: '7-8: التزام جيد مع فوات بسيط نادر.',
+      needsImprovement: '5-6: فوات متكرر لمتابعات مهمة.',
+      poor: '3-4: إهمال واضح لجدول المتابعات.',
+      critical: '1-2: انعدام الالتزام بالمتابعات بالكامل.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-5',
+    name: 'جودة التأهيل وتسجيل البيانات (Qualification & Data Quality)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'TeleSales Agent',
+    weight: 5,
+    description: 'دقة تصنيف الـLead ودقة تسجيل بياناته في النظام.',
+    scoringGuide: {
+      excellent: '9-10: تصنيف دقيق وتسجيل بيانات كامل وصحيح لكل Lead.',
+      good: '7-8: تصنيف وتسجيل جيدين مع أخطاء بسيطة نادرة.',
+      needsImprovement: '5-6: أخطاء متكررة في التصنيف أو نقص في البيانات المسجلة.',
+      poor: '3-4: تسجيل بيانات ضعيف يصعّب المتابعة.',
+      critical: '1-2: بيانات غائبة أو مغلوطة بشكل كبير.',
+    },
+    isActive: true,
+  },
+
+  // تيم ليدر تيلي سيلز
+  {
+    id: 'kpi-sales-ts-tl-1',
+    name: 'اجتماعات الفريق (Team Meetings)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Tele-Sales',
+    weight: 20,
+    description: 'إجمالي اجتماعات الداتا لكل أعضاء الفريق مجمّعين. المستهدف 120 اجتماعًا شهريًا للفريق.',
+    measurementType: 'METRIC',
+    metricUnit: 'COUNT',
+    targetValue: 120,
+    scoringGuide: {
+      excellent: 'محسوب آليًا: النقاط = (الإجمالي الفعلي ÷ 120) × 20، بحد أقصى 20.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-tl-2',
+    name: 'تحويل الفريق (Team Conversion)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Tele-Sales',
+    weight: 20,
+    description: 'نسبة تحويل الفريق محسوبة من إجمالي عملاء الفريق مجمّعين، مش من متوسط نسب الأفراد. المستهدف 80%.',
+    measurementType: 'METRIC',
+    metricUnit: 'PERCENT',
+    targetValue: 80,
+    scoringGuide: {
+      excellent: 'محسوب آليًا من إجمالي تحويل الفريق مقابل 80%، بحد أقصى 20 نقطة، وبعلامة "مبدئي" حتى إغلاق الشهر.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-tl-3',
+    name: 'سرعة الرد (Team Response Speed)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Tele-Sales',
+    weight: 5,
+    description: 'التزام الفريق ككل بمعيار الرد خلال دقيقتين.',
+    scoringGuide: {
+      excellent: '9-10: الفريق كله ملتزم بمعيار الدقيقتين تقريبًا بالكامل.',
+      good: '7-8: التزام جيد مع استثناءات قليلة.',
+      needsImprovement: '5-6: تجاوزات متكررة لمعيار سرعة الرد.',
+      poor: '3-4: تأخر واضح في رد أعضاء الفريق.',
+      critical: '1-2: إهمال شبه كامل لسرعة الرد.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-tl-4',
+    name: 'المتابعات (Team Follow-up Compliance)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Tele-Sales',
+    weight: 5,
+    description: 'التزام الفريق ككل بالمتابعات المجدولة.',
+    scoringGuide: {
+      excellent: '9-10: الفريق ملتزم بكل متابعاته في مواعيدها.',
+      good: '7-8: التزام جيد مع فوات بسيط نادر.',
+      needsImprovement: '5-6: فوات متكرر على مستوى الفريق.',
+      poor: '3-4: إهمال واضح لمتابعات الفريق.',
+      critical: '1-2: انعدام الالتزام بالكامل.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-tl-5',
+    name: 'جودة التأهيل (Team Qualification Quality)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Tele-Sales',
+    weight: 5,
+    description: 'جودة تأهيل وتسجيل البيانات على مستوى الفريق ككل.',
+    scoringGuide: {
+      excellent: '9-10: جودة تأهيل وتسجيل عالية عبر الفريق كله.',
+      good: '7-8: جودة جيدة مع أخطاء بسيطة متفرقة.',
+      needsImprovement: '5-6: تفاوت ملحوظ في جودة التأهيل بين أعضاء الفريق.',
+      poor: '3-4: جودة ضعيفة عمومًا.',
+      critical: '1-2: بيانات غير موثوقة على مستوى الفريق.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-ts-tl-6',
+    name: 'المراجعة والتدريب (Review & Coaching)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Tele-Sales',
+    weight: 5,
+    description: 'مدى قيام التيم ليدر بمراجعة أداء أعضاء الفريق وتدريبهم بشكل دوري.',
+    scoringGuide: {
+      excellent: '9-10: مراجعة وتدريب منتظمين وموثقين لكل أعضاء الفريق.',
+      good: '7-8: مراجعة وتدريب جيدين بانتظام مقبول.',
+      needsImprovement: '5-6: مراجعة غير منتظمة أو تدريب محدود.',
+      poor: '3-4: مراجعة وتدريب نادران.',
+      critical: '1-2: غياب شبه كامل للمراجعة والتدريب.',
+    },
+    isActive: true,
+  },
+
+  // السيلز
+  {
+    id: 'kpi-sales-s-1',
+    name: 'التحصيل الشهري (Monthly Net Collection)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Sales Agent',
+    weight: 35,
+    description: 'صافي التحصيل = التحصيل المؤهل شامل الضريبة ناقص أي استرداد. المستهدف 20,000 لاير شهريًا للفرد.',
+    measurementType: 'METRIC',
+    metricUnit: 'SAR',
+    targetValue: 20000,
+    scoringGuide: {
+      excellent: 'محسوب آليًا: النقاط = (صافي التحصيل ÷ 20,000) × 35، بحد أقصى 35.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-2',
+    name: 'معدل AOV (Average Order Value)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Sales Agent',
+    weight: 10,
+    description: 'متوسط قيمة الصفقة = إجمالي قيمة الصفقات المغلقة ÷ عدد الصفقات. المستهدف ألا يقل عن 2,500 ريال للصفقة. بدون حالات مستحقة هذا الشهر = غير منطبق.',
+    measurementType: 'METRIC',
+    metricUnit: 'SAR',
+    targetValue: 2500,
+    supportsNotApplicable: true,
+    scoringGuide: {
+      excellent: 'محسوب آليًا: النقاط = (متوسط قيمة الصفقة ÷ 2,500) × 10، بحد أقصى 10. بدون صفقات هذا الشهر: غير منطبق (لا صفر ولا كامل الوزن).',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-3',
+    name: 'متابعة العملاء (Client Follow-up)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Sales Agent',
+    weight: 10,
+    description: 'التزام السيلز بمتابعة العملاء بعد البيع: متابعات دورية، تذكير بالتجديد، التأكد من الرضا.',
+    scoringGuide: {
+      excellent: '9-10: متابعة منتظمة وموثقة لكل العملاء بعد البيع.',
+      good: '7-8: متابعة جيدة مع فجوات بسيطة نادرة.',
+      needsImprovement: '5-6: متابعة متقطعة لبعض العملاء.',
+      poor: '3-4: متابعة ضعيفة بشكل عام.',
+      critical: '1-2: إهمال شبه كامل لمتابعة العملاء بعد البيع.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-4',
+    name: 'دقة البيانات والعقود (Contract & Data Accuracy)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Sales Agent',
+    weight: 5,
+    description: 'صحة البيانات المسجلة في العقود: المبالغ، التواريخ، الشروط، بيانات العميل.',
+    scoringGuide: {
+      excellent: '9-10: عقود دقيقة بالكامل من غير أي أخطاء إدخال.',
+      good: '7-8: دقة جيدة مع أخطاء بسيطة نادرة.',
+      needsImprovement: '5-6: أخطاء متكررة في بيانات العقود.',
+      poor: '3-4: أخطاء تؤثر على دقة العقد أو المتابعة.',
+      critical: '1-2: بيانات عقود غير موثوقة.',
+    },
+    isActive: true,
+  },
+
+  // تيم ليدر سيلز
+  {
+    id: 'kpi-sales-s-tl-1',
+    name: 'تحصيله الشخصي (Personal Collection)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Sales',
+    weight: 35,
+    description: 'نفس مؤشر التحصيل الشهري الخاص بالسيلز، لكن لتحصيل التيم ليدر الشخصي. المستهدف 20,000 لاير شهريًا.',
+    measurementType: 'METRIC',
+    metricUnit: 'SAR',
+    targetValue: 20000,
+    scoringGuide: {
+      excellent: 'محسوب آليًا: النقاط = (صافي التحصيل الشخصي ÷ 20,000) × 35، بحد أقصى 35.',
+      good: 'نفس المعادلة أعلاه.',
+      needsImprovement: 'نفس المعادلة أعلاه.',
+      poor: 'نفس المعادلة أعلاه.',
+      critical: 'نفس المعادلة أعلاه.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-tl-2',
+    name: 'تحصيل الموظف الجديد (New Hire Collection)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Sales',
+    weight: 10,
+    description: 'مدى نجاح التيم ليدر في تأهيل الموظف الجديد عشان يوصل لمستوى تحصيل مقبول.',
+    scoringGuide: {
+      excellent: '9-10: الموظف الجديد وصل لمستوى تحصيل قوي بسرعة بفضل التأهيل.',
+      good: '7-8: تقدم جيد ومستمر في تحصيل الموظف الجديد.',
+      needsImprovement: '5-6: تقدم بطيء في تحصيل الموظف الجديد.',
+      poor: '3-4: الموظف الجديد لسه ضعيف في التحصيل من غير دعم واضح.',
+      critical: '1-2: غياب شبه كامل للتأهيل والدعم.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-tl-3',
+    name: 'المتابعات (Team Client Follow-up)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Sales',
+    weight: 5,
+    description: 'التزام الفريق ككل بمتابعة العملاء بعد البيع.',
+    scoringGuide: {
+      excellent: '9-10: الفريق كله ملتزم بالمتابعة بعد البيع.',
+      good: '7-8: التزام جيد مع فجوات بسيطة.',
+      needsImprovement: '5-6: متابعة متقطعة من بعض أعضاء الفريق.',
+      poor: '3-4: متابعة ضعيفة على مستوى الفريق.',
+      critical: '1-2: إهمال شبه كامل للمتابعة.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-tl-4',
+    name: 'دقة السجلات (Team Records Accuracy)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Sales',
+    weight: 5,
+    description: 'دقة سجلات وعقود الفريق ككل.',
+    scoringGuide: {
+      excellent: '9-10: سجلات دقيقة بالكامل عبر الفريق.',
+      good: '7-8: دقة جيدة مع أخطاء بسيطة نادرة.',
+      needsImprovement: '5-6: أخطاء متكررة في سجلات بعض الأعضاء.',
+      poor: '3-4: سجلات غير دقيقة بشكل ملحوظ.',
+      critical: '1-2: سجلات غير موثوقة على مستوى الفريق.',
+    },
+    isActive: true,
+  },
+  {
+    id: 'kpi-sales-s-tl-5',
+    name: 'تدريب الموظف الجديد (New Hire Training)',
+    category: 'DEPARTMENT',
+    departmentId: 'dept-sales',
+    roleName: 'Head Of Sales',
+    weight: 5,
+    description: 'مجهود التيم ليدر الفعلي في تدريب وتأهيل الموظفين الجدد.',
+    scoringGuide: {
+      excellent: '9-10: برنامج تدريب منظم وموثق للموظفين الجدد.',
+      good: '7-8: تدريب جيد ومنتظم بشكل مقبول.',
+      needsImprovement: '5-6: تدريب غير منتظم.',
+      poor: '3-4: تدريب محدود جدًا.',
+      critical: '1-2: غياب شبه كامل للتدريب.',
+    },
+    isActive: true,
+  },
 ];
 
 export const INITIAL_LEADERSHIP_KPIS: KPIDefinition[] = [
@@ -1256,6 +1652,20 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     startDate: '2022-01-01',
     isActive: true,
     systemRole: 'CEO',
+    // LOCAL TESTING ONLY — mirrors Reda's real production grant (CEO + ADMIN per
+    // CLAUDE.md) so this can be exercised locally; his real ADMIN permission comes
+    // from Supabase Auth app_metadata in production, not from this file (see
+    // resolveEmployeeProfile in AuthContext.tsx), so this scope has NO effect on
+    // production until a matching change is made there — not done yet, pending a
+    // separate explicit go-ahead. Scoped to every department except Sales ("Technical"):
+    // his day-to-day evaluation authority (manage employees / evaluate / approve /
+    // view-all) is now Technical-only, while MANAGE_SETTINGS, PUBLISH_EVALUATIONS and
+    // the executive dashboard/audit-log/KPI-weight views stay whole-company, granted by
+    // the CEO systemRole itself (see ROLE_CAPABILITIES.CEO in authorization.ts) — those
+    // are single, whole-company operations with no per-department version, so they are
+    // never cut down by this scope.
+    additionalPermissions: ['ADMIN'],
+    additionalPermissionScope: { departmentIds: TECHNICAL_DEPARTMENT_IDS },
     phone: '+20 10 80457023',
     createdAt: '2022-01-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',
@@ -1662,6 +2072,19 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     isActive: true,
     systemRole: 'HEAD_TECHNICAL',
     additionalPermissions: ['ADMIN'],
+    // LOCAL TESTING ONLY — same caveat as emp-reda above: this has no effect on
+    // production until resolveEmployeeProfile is updated to read a real scope from
+    // Supabase, which is a separate step pending explicit approval. Scoped to every
+    // department except Sales: her HEAD_TECHNICAL role already grants
+    // MANAGE_EMPLOYEES/EVALUATE_ALL_EMPLOYEES/VIEW_ALL_EVALUATIONS (see
+    // ROLE_CAPABILITIES.HEAD_TECHNICAL), and those are now Technical-only too. Unlike
+    // Reda, she has no systemRole-level grant of MANAGE_SETTINGS/PUBLISH_EVALUATIONS/
+    // the executive dashboard — those came only from her ADMIN permission, which does
+    // not carry non-scopable capabilities once scoped (see
+    // hasAuthorizationCapabilityForDepartment in authorization.ts) — so scoping her
+    // removes those three for her entirely, leaving Reda as the one person who still
+    // holds them company-wide.
+    additionalPermissionScope: { departmentIds: TECHNICAL_DEPARTMENT_IDS },
     phone: '+20 11 88990011',
     createdAt: '2022-09-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',
@@ -1809,6 +2232,111 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     phone: '+20 10 00000302',
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2026-08-16T00:00:00Z',
+  },
+
+  // 8. Sales — FAKE SEED DATA for local testing only. None of these 6 employees are
+  // real people and none of this is written to Supabase; they exist purely so the
+  // Sales module has data to run against while it is built and tested locally.
+  {
+    // Sales Manager: the highest job title in the whole Sales department (both
+    // tracks). Same department-scoped ADMIN grant as Head Of Sales below — the
+    // two are peers in authority, Sales Manager is just org-chart-senior to both
+    // Head Of Sales and Head Of TeleSales (see their teamLeaderId below).
+    id: 'emp-sales-manager-fake',
+    name: '[FAKE] Sales Manager',
+    email: 'fake.sales.manager@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Sales Manager',
+    level: 'Team Leader',
+    startDate: '2025-01-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    additionalPermissions: ['ADMIN'],
+    additionalPermissionScope: { departmentIds: ['dept-sales'] },
+    phone: '+20 10 00000901',
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
+  },
+  {
+    // Head Of Sales: this role itself carries full department-scoped authority
+    // over dept-sales (both the Sales track and the TeleSales track), the same
+    // capability set Head Technical has system-wide but limited to this
+    // department (see hasAuthorizationCapabilityForDepartment in
+    // authorization.ts). There is no separate standalone "admin" employee —
+    // Head Of Sales is the admin, same as the Sales Manager above.
+    id: 'emp-tl-sales-fake',
+    name: '[FAKE] Head Of Sales',
+    email: 'fake.tl.sales@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Head Of Sales',
+    level: 'Team Leader',
+    teamLeaderId: 'emp-sales-manager-fake',
+    teamLeaderName: '[FAKE] Sales Manager',
+    startDate: '2025-02-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    additionalPermissions: ['ADMIN'],
+    additionalPermissionScope: { departmentIds: ['dept-sales'] },
+    phone: '+20 10 00000904',
+    createdAt: '2025-02-01T00:00:00Z',
+    updatedAt: '2025-02-01T00:00:00Z',
+  },
+  {
+    // Head Of Tele-Sales: a plain Team Leader with no ADMIN permission at
+    // all. Scoping down to "TeleSales employees only" (and not Sales-track
+    // employees) is handled purely by getSalesTrack/isWithinTeamLeaderScope
+    // in departmentNames.ts, not by any additional permission here.
+    id: 'emp-tl-telesales-fake',
+    name: '[FAKE] Head Of Tele-Sales',
+    email: 'fake.tl.telesales@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Head Of Tele-Sales',
+    level: 'Team Leader',
+    teamLeaderId: 'emp-sales-manager-fake',
+    teamLeaderName: '[FAKE] Sales Manager',
+    startDate: '2025-02-01',
+    isActive: true,
+    systemRole: 'TEAM_LEADER',
+    phone: '+20 10 00000902',
+    createdAt: '2025-02-01T00:00:00Z',
+    updatedAt: '2025-02-01T00:00:00Z',
+  },
+  {
+    id: 'emp-telesales-1-fake',
+    name: '[FAKE] TeleSales Agent One',
+    email: 'fake.telesales1@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'TeleSales Agent',
+    level: 'Mid',
+    teamLeaderId: 'emp-tl-telesales-fake',
+    teamLeaderName: '[FAKE] Head Of Tele-Sales',
+    startDate: '2025-03-01',
+    isActive: true,
+    systemRole: 'EMPLOYEE',
+    phone: '+20 10 00000903',
+    createdAt: '2025-03-01T00:00:00Z',
+    updatedAt: '2025-03-01T00:00:00Z',
+  },
+  {
+    id: 'emp-sales-1-fake',
+    name: '[FAKE] Sales Agent One',
+    email: 'fake.sales1@kesraa.local',
+    departmentId: 'dept-sales',
+    departmentName: 'Sales',
+    role: 'Sales Agent',
+    level: 'Mid',
+    teamLeaderId: 'emp-tl-sales-fake',
+    teamLeaderName: '[FAKE] Head Of Sales',
+    startDate: '2025-03-01',
+    isActive: true,
+    systemRole: 'EMPLOYEE',
+    phone: '+20 10 00000905',
+    createdAt: '2025-03-01T00:00:00Z',
+    updatedAt: '2025-03-01T00:00:00Z',
   },
 ];
 

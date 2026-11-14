@@ -23,7 +23,8 @@ export class AuditService {
     targetId: string,
     details: string,
     previousValue?: string,
-    newValue?: string
+    newValue?: string,
+    departmentId?: string
   ): AuditLog {
     const newLog: AuditLog = {
       id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -37,6 +38,7 @@ export class AuditService {
       previousValue,
       newValue,
       timestamp: new Date().toISOString(),
+      departmentId,
     };
 
     try {
