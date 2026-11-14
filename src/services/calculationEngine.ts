@@ -106,7 +106,19 @@ export class CalculationEngine {
    * Calculates individual contributions and final scores based on level, role, and category weights.
    */
   public static calculateScores(
-    scoresInput: Array<{ kpiId: string; score: number; notes?: string; achieved?: number; target?: number }>,
+    scoresInput: Array<{
+      kpiId: string;
+      score: number;
+      notes?: string;
+      achieved?: number;
+      target?: number;
+      // False only for a KPI the evaluator explicitly marked "N/A" this period (e.g. AOV
+      // with no deals closed) — per its own written policy ("لا صفر ولا كامل الوزن"),
+      // its weight is excluded from the total entirely: neither scored as 0 nor given
+      // full credit. Omitted/undefined is treated as true (applicable), unchanged for
+      // every existing/RUBRIC KPI.
+      isApplicable?: boolean;
+    }>,
     kpiDefinitions: KPIDefinition[],
     level: EmployeeLevel,
     isHeadTechnical: boolean = false,
@@ -143,17 +155,24 @@ export class CalculationEngine {
         effectiveWeight = (kpi.weight / 60) * 40;
       }
 
-      // Calculate weighted contribution: (score / 10) * effectiveWeight
-      const weightedContribution = Number(
-        ((validScore / 10) * effectiveWeight).toFixed(2)
-      );
+      const isApplicable = input.isApplicable !== false;
 
-      if (kpi.category === 'COMMON') {
-        commonContribution += weightedContribution;
-      } else if (kpi.category === 'DEPARTMENT') {
-        deptContribution += weightedContribution;
-      } else if (kpi.category === 'LEADERSHIP' || kpi.category === 'MANAGEMENT') {
-        leadershipContribution += weightedContribution;
+      // N/A: excluded from the total entirely (not 0, not full credit) — its weight
+      // simply isn't counted toward or against the final score, so the remaining
+      // possible total for this evaluation period shrinks by exactly that KPI's weight
+      // instead of being rescaled back up to compensate.
+      const weightedContribution = isApplicable
+        ? Number(((validScore / 10) * effectiveWeight).toFixed(2))
+        : 0;
+
+      if (isApplicable) {
+        if (kpi.category === 'COMMON') {
+          commonContribution += weightedContribution;
+        } else if (kpi.category === 'DEPARTMENT') {
+          deptContribution += weightedContribution;
+        } else if (kpi.category === 'LEADERSHIP' || kpi.category === 'MANAGEMENT') {
+          leadershipContribution += weightedContribution;
+        }
       }
 
       itemScores.push({
@@ -167,6 +186,7 @@ export class CalculationEngine {
         notes: input.notes || '',
         achieved: input.achieved,
         target: input.target,
+        isApplicable,
       });
     }
 

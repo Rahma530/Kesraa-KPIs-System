@@ -75,6 +75,12 @@ export interface KPIDefinition {
   // Monthly target used only when measurementType === 'METRIC' (e.g. 30 meetings,
   // 20000 SAR, 80 for an 80% conversion target).
   targetValue?: number;
+  // True only for a METRIC KPI whose own written policy explicitly allows "not
+  // applicable this period" (today: AOV's "بدون صفقات هذا الشهر = غير منطبق" — no
+  // applicable deals this period means the KPI is excluded from the evaluation
+  // entirely, not scored as 0 and not given full credit). Lets the evaluator mark it
+  // N/A instead of typing a number. Omitted/undefined = this KPI has no N/A case.
+  supportsNotApplicable?: boolean;
 }
 
 export interface Department {
@@ -129,6 +135,12 @@ export interface EvaluationScoreItem {
   // reopen, not just the score they produced.
   achieved?: number;
   target?: number;
+  // False only when the evaluator explicitly marked this KPI "N/A" for the period (see
+  // KPIDefinition.supportsNotApplicable) — its weight is excluded from the evaluation's
+  // total entirely (CalculationEngine does not count it toward or against the score).
+  // Omitted/undefined is treated as true (applicable), so every existing/RUBRIC KPI
+  // keeps behaving exactly as it does today.
+  isApplicable?: boolean;
 }
 
 export interface EvaluationAIRecommendations {

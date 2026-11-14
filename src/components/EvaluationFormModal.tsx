@@ -241,8 +241,13 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
   // Local state for scores. `achieved` only has a value for a measurementType === 'METRIC'
   // KPI (e.g. actual AOV = 2600) — it drives `score` automatically (see
   // handleAchievedChange) and is kept alongside it so a saved evaluation still shows the
-  // real typed number on reopen, not just the score it produced.
-  const [scoresState, setScoresState] = useState<Record<string, { score: number; notes: string; achieved?: number }>>({});
+  // real typed number on reopen, not just the score it produced. `notApplicable` is only
+  // meaningful for a KPI with supportsNotApplicable (currently AOV): the evaluator marked
+  // "no applicable cases this period" instead of typing a number — per that KPI's own
+  // written policy, this excludes it from the total entirely (not 0, not full credit).
+  const [scoresState, setScoresState] = useState<
+    Record<string, { score: number; notes: string; achieved?: number; notApplicable?: boolean }>
+  >({});
   const [strengths, setStrengths] = useState(evaluation?.strengths || '');
   const [improvements, setImprovements] = useState(evaluation?.improvements || '');
   const [developmentActions, setDevelopmentActions] = useState(evaluation?.developmentActions || '');
@@ -259,14 +264,19 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
 
   // Initialize scores
   useEffect(() => {
-    const initial: Record<string, { score: number; notes: string; achieved?: number }> = {};
+    const initial: Record<string, { score: number; notes: string; achieved?: number; notApplicable?: boolean }> = {};
     const savedScores = new Map<string, EvaluationScoreItem>(
       (evaluation?.scores || []).map((s) => [s.kpiId, s])
     );
     activeKpis.forEach((k) => {
       const saved = savedScores.get(k.id);
       if (saved) {
-        initial[k.id] = { score: saved.score, notes: saved.notes || '', achieved: saved.achieved };
+        initial[k.id] = {
+          score: saved.score,
+          notes: saved.notes || '',
+          achieved: saved.achieved,
+          notApplicable: saved.isApplicable === false,
+        };
       } else if (!isLocked) {
         // METRIC KPIs start with no typed number yet (score 0, "not entered") instead of
         // the RUBRIC default of 8 — defaulting a metric to "meets target" before the
@@ -298,7 +308,9 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     }
 
     const inputList = Object.entries(scoresState).map(
-      ([kpiId, val]: [string, { score: number; notes: string; achieved?: number }]) => {
+      (
+        [kpiId, val]: [string, { score: number; notes: string; achieved?: number; notApplicable?: boolean }]
+      ) => {
         const kpi = activeKpis.find((k) => k.id === kpiId);
         return {
           kpiId,
@@ -306,6 +318,7 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
           notes: val.notes,
           achieved: val.achieved,
           target: kpi?.measurementType === 'METRIC' ? kpi.targetValue : undefined,
+          isApplicable: val.notApplicable ? false : true,
         };
       }
     );
@@ -350,8 +363,28 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
       ? Math.max(1, Math.min(10, Math.round((result.pointsAwarded / kpi.weight) * 10)))
       : 0;
     setScoresState((prev) => ({
+      // Typing a real number means this period is applicable again, even if it was
+      // previously marked N/A.
       ...prev,
-      [kpi.id]: { ...prev[kpi.id], achieved, score: derivedScore },
+      [kpi.id]: { ...prev[kpi.id], achieved, score: derivedScore, notApplicable: false },
+    }));
+  };
+
+  // Only for a KPI with supportsNotApplicable (currently AOV): the evaluator marks "no
+  // applicable cases this period" (e.g. no deals closed) instead of typing a number. Per
+  // that KPI's own written policy ("لا صفر ولا كامل الوزن"), CalculationEngine excludes
+  // it from the total entirely rather than scoring it 0 — see isApplicable in
+  // calculateScores. Toggling it off clears the achieved number typed in.
+  const handleNotApplicableToggle = (kpiId: string, notApplicable: boolean) => {
+    if (isLocked) return;
+    setScoresState((prev) => ({
+      ...prev,
+      [kpiId]: {
+        ...prev[kpiId],
+        notApplicable,
+        achieved: notApplicable ? undefined : prev[kpiId]?.achieved,
+        score: notApplicable ? 0 : prev[kpiId]?.score || 0,
+      },
     }));
   };
 
@@ -1134,6 +1167,7 @@ Return valid JSON only, using this structure:
     const isMetricKpi = kpi.measurementType === 'METRIC' && kpi.targetValue !== undefined;
     const currentScore = scoresState[kpi.id]?.score || 8;
     const currentAchieved = scoresState[kpi.id]?.achieved;
+    const isMarkedNotApplicable = scoresState[kpi.id]?.notApplicable === true;
     const isGuideOpen = activeGuideKpiId === kpi.id;
 
     return (
@@ -1176,20 +1210,34 @@ Return valid JSON only, using this structure:
                 <input
                   type="number"
                   dir="ltr"
-                  disabled={isLocked}
+                  disabled={isLocked || isMarkedNotApplicable}
                   value={currentAchieved ?? ''}
                   onChange={(e) =>
                     handleAchievedChange(kpi, e.target.value === '' ? null : Number(e.target.value))
                   }
-                  placeholder="الرقم الفعلي"
-                  className="w-28 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-right text-xs font-bold text-white placeholder:text-slate-500 focus:border-teal-400 focus:outline-none disabled:cursor-not-allowed"
+                  placeholder={isMarkedNotApplicable ? 'غير منطبق' : 'الرقم الفعلي'}
+                  className="w-28 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-right text-xs font-bold text-white placeholder:text-slate-500 focus:border-teal-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 />
-                {kpi.metricUnit && (
+                {kpi.metricUnit && !isMarkedNotApplicable && (
                   <span className="text-[10px] text-slate-400">{kpi.metricUnit}</span>
                 )}
               </div>
+              {kpi.supportsNotApplicable && (
+                <label className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <input
+                    type="checkbox"
+                    disabled={isLocked}
+                    checked={isMarkedNotApplicable}
+                    onChange={(e) => handleNotApplicableToggle(kpi.id, e.target.checked)}
+                    className="h-3 w-3 rounded border-white/20 bg-white/5 disabled:cursor-not-allowed"
+                  />
+                  غير منطبق هذا الربع (لا حالات مستحقة)
+                </label>
+              )}
               <span className="text-[10px] text-slate-400">
-                {currentAchieved === undefined
+                {isMarkedNotApplicable
+                  ? 'مستبعد من الحساب — لا صفر ولا كامل الوزن'
+                  : currentAchieved === undefined
                   ? `التارجت: ${kpi.targetValue}`
                   : `التارجت: ${kpi.targetValue} — النتيجة المحسوبة: ${currentScore}/10`}
               </span>

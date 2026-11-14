@@ -1455,6 +1455,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     measurementType: 'METRIC',
     metricUnit: 'SAR',
     targetValue: 2500,
+    supportsNotApplicable: true,
     scoringGuide: {
       excellent: 'محسوب آليًا: النقاط = (متوسط قيمة الصفقة ÷ 2,500) × 10، بحد أقصى 10. بدون صفقات هذا الشهر: غير منطبق (لا صفر ولا كامل الوزن).',
       good: 'نفس المعادلة أعلاه.',
