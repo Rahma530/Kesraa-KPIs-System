@@ -256,10 +256,17 @@ const CapabilityRoute: React.FC<{
 // the ones someone remembered to wrap individually.
 const RoleGuardedSection: React.FC<{ roles: SystemRole[] }> = ({ roles }) => {
   const { currentUser } = useAuth();
+  // A bare <Outlet /> here would start a brand-new outlet-context boundary with no
+  // context, shadowing AppLayout's own <Outlet context={...}> above it — every page
+  // under this route group that reads useOutletContext() (via RouteWrapper) would then
+  // crash on undefined.handleOpenAIInsights (etc.) instead of receiving the real
+  // handlers. Reading the parent's context here and passing it straight through keeps
+  // the chain intact.
+  const outletContext = useOutletContext();
   if (!currentUser || !roles.includes(currentUser.systemRole)) {
     return <Navigate to="/" replace />;
   }
-  return <Outlet />;
+  return <Outlet context={outletContext} />;
 };
 
 // Same idea as CapabilityRoute, but department-aware — hasCapability alone can't
