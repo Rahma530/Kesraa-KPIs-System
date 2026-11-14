@@ -1319,7 +1319,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'اجتماعات الفريق (Team Meetings)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'TeleSales Team Leader',
+    roleName: 'Head Of Tele-Sales',
     weight: 20,
     description: 'إجمالي اجتماعات الداتا لكل أعضاء الفريق مجمّعين. المستهدف 120 اجتماعًا شهريًا للفريق.',
     measurementType: 'METRIC',
@@ -1339,7 +1339,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'تحويل الفريق (Team Conversion)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'TeleSales Team Leader',
+    roleName: 'Head Of Tele-Sales',
     weight: 20,
     description: 'نسبة تحويل الفريق محسوبة من إجمالي عملاء الفريق مجمّعين، مش من متوسط نسب الأفراد. المستهدف 80%.',
     measurementType: 'METRIC',
@@ -1359,7 +1359,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'سرعة الرد (Team Response Speed)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'TeleSales Team Leader',
+    roleName: 'Head Of Tele-Sales',
     weight: 5,
     description: 'التزام الفريق ككل بمعيار الرد خلال دقيقتين.',
     scoringGuide: {
@@ -1376,7 +1376,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'المتابعات (Team Follow-up Compliance)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'TeleSales Team Leader',
+    roleName: 'Head Of Tele-Sales',
     weight: 5,
     description: 'التزام الفريق ككل بالمتابعات المجدولة.',
     scoringGuide: {
@@ -1393,7 +1393,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'جودة التأهيل (Team Qualification Quality)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'TeleSales Team Leader',
+    roleName: 'Head Of Tele-Sales',
     weight: 5,
     description: 'جودة تأهيل وتسجيل البيانات على مستوى الفريق ككل.',
     scoringGuide: {
@@ -1410,7 +1410,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'المراجعة والتدريب (Review & Coaching)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'TeleSales Team Leader',
+    roleName: 'Head Of Tele-Sales',
     weight: 5,
     description: 'مدى قيام التيم ليدر بمراجعة أداء أعضاء الفريق وتدريبهم بشكل دوري.',
     scoringGuide: {
@@ -1506,7 +1506,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'تحصيله الشخصي (Personal Collection)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'Sales Team Leader',
+    roleName: 'Head Of Sales',
     weight: 35,
     description: 'نفس مؤشر التحصيل الشهري الخاص بالسيلز، لكن لتحصيل التيم ليدر الشخصي. المستهدف 20,000 لاير شهريًا.',
     measurementType: 'METRIC',
@@ -1526,7 +1526,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'تحصيل الموظف الجديد (New Hire Collection)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'Sales Team Leader',
+    roleName: 'Head Of Sales',
     weight: 10,
     description: 'مدى نجاح التيم ليدر في تأهيل الموظف الجديد عشان يوصل لمستوى تحصيل مقبول.',
     scoringGuide: {
@@ -1543,7 +1543,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'المتابعات (Team Client Follow-up)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'Sales Team Leader',
+    roleName: 'Head Of Sales',
     weight: 5,
     description: 'التزام الفريق ككل بمتابعة العملاء بعد البيع.',
     scoringGuide: {
@@ -1560,7 +1560,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'دقة السجلات (Team Records Accuracy)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'Sales Team Leader',
+    roleName: 'Head Of Sales',
     weight: 5,
     description: 'دقة سجلات وعقود الفريق ككل.',
     scoringGuide: {
@@ -1577,7 +1577,7 @@ export const INITIAL_DEPARTMENT_KPIS: KPIDefinition[] = [
     name: 'تدريب الموظف الجديد (New Hire Training)',
     category: 'DEPARTMENT',
     departmentId: 'dept-sales',
-    roleName: 'Sales Team Leader',
+    roleName: 'Head Of Sales',
     weight: 5,
     description: 'مجهود التيم ليدر الفعلي في تدريب وتأهيل الموظفين الجدد.',
     scoringGuide: {
@@ -2259,19 +2259,18 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     updatedAt: '2025-01-01T00:00:00Z',
   },
   {
-    // Head Of Sales: the Sales Team Leader role itself carries full
-    // department-scoped authority over dept-sales (both the Sales track and
-    // the TeleSales track), the same capability set Head Technical has
-    // system-wide but limited to this department (see
-    // hasAuthorizationCapabilityForDepartment in authorization.ts). There is
-    // no separate standalone "admin" employee — the real Sales Team Leader
-    // is the admin, same as the Sales Manager above.
+    // Head Of Sales: this role itself carries full department-scoped authority
+    // over dept-sales (both the Sales track and the TeleSales track), the same
+    // capability set Head Technical has system-wide but limited to this
+    // department (see hasAuthorizationCapabilityForDepartment in
+    // authorization.ts). There is no separate standalone "admin" employee —
+    // Head Of Sales is the admin, same as the Sales Manager above.
     id: 'emp-tl-sales-fake',
-    name: '[FAKE] Sales Team Leader',
+    name: '[FAKE] Head Of Sales',
     email: 'fake.tl.sales@kesraa.local',
     departmentId: 'dept-sales',
     departmentName: 'Sales',
-    role: 'Sales Team Leader',
+    role: 'Head Of Sales',
     level: 'Team Leader',
     teamLeaderId: 'emp-sales-manager-fake',
     teamLeaderName: '[FAKE] Sales Manager',
@@ -2285,16 +2284,16 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     updatedAt: '2025-02-01T00:00:00Z',
   },
   {
-    // Head Of TeleSales: a plain Team Leader with no ADMIN permission at
+    // Head Of Tele-Sales: a plain Team Leader with no ADMIN permission at
     // all. Scoping down to "TeleSales employees only" (and not Sales-track
     // employees) is handled purely by getSalesTrack/isWithinTeamLeaderScope
     // in departmentNames.ts, not by any additional permission here.
     id: 'emp-tl-telesales-fake',
-    name: '[FAKE] TeleSales Team Leader',
+    name: '[FAKE] Head Of Tele-Sales',
     email: 'fake.tl.telesales@kesraa.local',
     departmentId: 'dept-sales',
     departmentName: 'Sales',
-    role: 'TeleSales Team Leader',
+    role: 'Head Of Tele-Sales',
     level: 'Team Leader',
     teamLeaderId: 'emp-sales-manager-fake',
     teamLeaderName: '[FAKE] Sales Manager',
@@ -2314,7 +2313,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     role: 'TeleSales Agent',
     level: 'Mid',
     teamLeaderId: 'emp-tl-telesales-fake',
-    teamLeaderName: '[FAKE] TeleSales Team Leader',
+    teamLeaderName: '[FAKE] Head Of Tele-Sales',
     startDate: '2025-03-01',
     isActive: true,
     systemRole: 'EMPLOYEE',
@@ -2331,7 +2330,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     role: 'Sales Agent',
     level: 'Mid',
     teamLeaderId: 'emp-tl-sales-fake',
-    teamLeaderName: '[FAKE] Sales Team Leader',
+    teamLeaderName: '[FAKE] Head Of Sales',
     startDate: '2025-03-01',
     isActive: true,
     systemRole: 'EMPLOYEE',

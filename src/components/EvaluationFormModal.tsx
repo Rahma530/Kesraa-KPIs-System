@@ -70,16 +70,35 @@ export const canEditEvaluation = (
 // Who may approve an evaluation: anyone holding APPROVE_EVALUATIONS for this
 // evaluation's own department — an unscoped holder (Head Technical/CEO before any
 // scope was declared) system-wide as always, or a department-scoped holder (a
-// Technical-scoped Head Technical/CEO, or the Sales Manager / Head Of Sales for
-// dept-sales) only within their own department. There is no more unconditional
-// systemRole bypass here: Head Technical's approve power now comes entirely from
-// holding the capability for the evaluation's department, same as everyone else.
+// Technical-scoped Head Technical/CEO) only within their own department. There is no
+// more unconditional systemRole bypass here: Head Technical's approve power now comes
+// entirely from holding the capability for the evaluation's department, same as
+// everyone else.
+//
+// dept-sales is a deliberate exception to "holding the capability is enough": Head Of
+// Sales and Head Of Tele-Sales do the day-to-day evaluating/submitting, same as a Team
+// Leader anywhere else — mirroring Technical's own rule that a Team Leader can never
+// approve her own team's evaluations, only Head Technical can. Head Of Sales also holds
+// a department-scoped ADMIN grant (for managing employees, viewing all evaluations,
+// etc. — see her entry in initialData.ts), which would otherwise also hand her
+// APPROVE_EVALUATIONS over her own team. An evaluation in dept-sales is only considered
+// finished once it has passed through both of them: Head Of Sales/Head Of Tele-Sales
+// (submits it) and then Sales Manager specifically (the only one who can move it to
+// APPROVED). This is a business-stated two-step chain, not something the generic
+// ADMIN/capability engine in authorization.ts knows about — so it is special-cased only
+// here, and only for dept-sales, rather than touching that shared engine.
 export const canApproveEvaluation = (
   user: Employee | null | undefined,
   evaluation?: Evaluation | null
 ): boolean => {
   if (!evaluation?.departmentId) return false;
-  return hasAuthorizationCapabilityForDepartment(user, 'APPROVE_EVALUATIONS', evaluation.departmentId);
+  if (!hasAuthorizationCapabilityForDepartment(user, 'APPROVE_EVALUATIONS', evaluation.departmentId)) {
+    return false;
+  }
+  if (evaluation.departmentId === 'dept-sales') {
+    return /sales\s*manager/i.test(user?.role || '');
+  }
+  return true;
 };
 
 export const canReopenEvaluation = (
