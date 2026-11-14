@@ -36,6 +36,21 @@ const respond = (status: number, body: Record<string, unknown>, origin: string) 
 const cleanText = (value: unknown, maximum: number): string =>
   typeof value === 'string' ? value.trim().slice(0, maximum) : '';
 
+// Mirrors src/context/AuthContext.tsx's getAdditionalPermissionScope: absent or
+// malformed app_metadata means "no scope", i.e. company-wide (unchanged behavior
+// for an existing unscoped ADMIN like Toqa). A caller whose additional permission
+// IS scoped (e.g. Sales Manager / Head Of Sales with { departmentIds: ['dept-sales'] })
+// must be restricted to those departments everywhere this function touches a
+// specific department, not just granted ADMIN's unrestricted reach.
+const getCallerDepartmentScope = (user: { app_metadata?: Record<string, unknown> }): string[] | null => {
+  const rawScope = user.app_metadata?.additional_permission_scope;
+  if (!rawScope || typeof rawScope !== 'object' || Array.isArray(rawScope)) return null;
+  const departmentIds = (rawScope as { departmentIds?: unknown }).departmentIds;
+  if (!Array.isArray(departmentIds) || departmentIds.length === 0) return null;
+  const validIds = departmentIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  return validIds.length > 0 ? validIds : null;
+};
+
 const normalizeEmail = (value: unknown): string => cleanText(value, 320).toLowerCase();
 const isValidDate = (value: string): boolean => {
   if (!DATE_PATTERN.test(value)) return false;
@@ -161,6 +176,10 @@ Deno.serve(async (request) => {
   const canManageEmployees = Boolean(caller) && (
     MANAGER_ROLES.has(caller.system_role) || extraPermissions.includes('ADMIN')
   );
+  // null = company-wide (no restriction); otherwise the exact department IDs this
+  // caller is allowed to touch, regardless of whether MANAGE_EMPLOYEES came from
+  // their systemRole or from the ADMIN grant.
+  const callerScope = getCallerDepartmentScope(authData.user);
   if (!caller || caller.account_enabled !== true || caller.employment_active === false) {
     return respond(403, { error: 'An enabled linked employee account is required.' }, allowedOrigin);
   }
@@ -240,7 +259,8 @@ Deno.serve(async (request) => {
     }
 
     const visibleRows = (rosterRows || []).filter((employee) =>
-      canReadEvaluationRosterEmployee(rosterScope, caller, employee)
+      canReadEvaluationRosterEmployee(rosterScope, caller, employee) &&
+      (!callerScope || callerScope.includes(String(employee.department_id)))
     );
     const departmentIds = [...new Set(visibleRows.map((employee) => employee.department_id))];
     const departmentResult = departmentIds.length > 0
@@ -272,11 +292,19 @@ Deno.serve(async (request) => {
     if (departmentResult.error) {
       return respond(500, { error: 'Could not load authoritative departments.' }, allowedOrigin);
     }
-    const departments = departmentResult.data || [];
-    const names = new Map(departments.map((department) => [department.id, department.name]));
+    // A department-scoped caller (e.g. Sales Manager / Head Of Sales) only sees
+    // their own department's roster here, same as every other action below --
+    // an unscoped caller (callerScope === null) is unaffected.
+    const scopedEmployees = callerScope
+      ? (employeeResult.data || []).filter((employee) => callerScope.includes(String(employee.department_id)))
+      : (employeeResult.data || []);
+    const scopedDepartments = callerScope
+      ? (departmentResult.data || []).filter((department) => callerScope.includes(String(department.id)))
+      : (departmentResult.data || []);
+    const names = new Map(scopedDepartments.map((department) => [department.id, department.name]));
     return respond(200, {
-      employees: (employeeResult.data || []).map((employee) => mapEmployee(employee, names)),
-      departments,
+      employees: scopedEmployees.map((employee) => mapEmployee(employee, names)),
+      departments: scopedDepartments,
     }, allowedOrigin);
   }
 
@@ -288,6 +316,9 @@ Deno.serve(async (request) => {
     if (departmentError || !department) return { status: 422, error: 'The selected department does not exist.' };
     if (!isAdministrator && PRIVILEGED_ROLES.has(employee.system_role)) {
       return { status: 403, error: 'Only an administrator can assign this system role.' };
+    }
+    if (callerScope && !callerScope.includes(employee.department_id)) {
+      return { status: 403, error: 'You are not authorized to manage employees in this department.' };
     }
 
     if (create) {
@@ -312,6 +343,12 @@ Deno.serve(async (request) => {
     if (!current) return { status: 404, error: 'Employee not found.' };
     if (!isAdministrator && PRIVILEGED_ROLES.has(current.system_role)) {
       return { status: 403, error: 'Only an administrator can update this employee.' };
+    }
+    // The employee's CURRENT department must also be in scope -- not just the new
+    // one being saved -- so a department-scoped caller can't touch a record that
+    // currently belongs to a department outside their scope at all.
+    if (callerScope && !callerScope.includes(String(current.department_id))) {
+      return { status: 403, error: 'You are not authorized to manage employees in this department.' };
     }
     if (current.auth_user_id && normalizeEmail(current.email) !== employee.email) {
       return { status: 409, error: 'A linked employee email cannot be changed until the Auth identity is remediated.' };
@@ -357,6 +394,9 @@ Deno.serve(async (request) => {
     const { data: current, error: currentError } = await selectEmployees().eq('id', employeeId).maybeSingle();
     if (currentError) return respond(500, { error: 'Could not load the target employee.' }, allowedOrigin);
     if (!current) return respond(404, { error: 'Employee not found.' }, allowedOrigin);
+    if (callerScope && !callerScope.includes(String(current.department_id))) {
+      return respond(403, { error: 'You are not authorized to manage employees in this department.' }, allowedOrigin);
+    }
     if (action === 'set-account-enabled' && nextValue === true && current.employment_active === false) {
       return respond(409, { error: 'Reactivate employment before enabling account access.' }, allowedOrigin);
     }
@@ -397,6 +437,10 @@ Deno.serve(async (request) => {
       const validation = validateEmployee(row);
       if (validation.errors.length > 0) {
         failed.push({ rowNumber, reason: validation.errors.join(' ') });
+        continue;
+      }
+      if (callerScope && !callerScope.includes(validation.employee.department_id)) {
+        failed.push({ rowNumber, reason: 'You are not authorized to import employees into this department.' });
         continue;
       }
       const email = validation.employee.email;
