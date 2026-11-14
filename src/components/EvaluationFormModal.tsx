@@ -359,8 +359,10 @@ const EvaluationFormModalContent: React.FC<EvaluationFormModalContentProps> = ({
     const result = SalesCalculationEngine.scoreMetricKpi(kpi, achieved, {
       lowerIsBetter: kpi.id === 'kpi-sales-ts-3',
     });
+    // Kept at full precision (no rounding to a whole 1-10 number, no floor of 1) so the
+    // real typed achieved/target ratio is what actually counts toward the score.
     const derivedScore = result.isApplicable
-      ? Math.max(1, Math.min(10, Math.round((result.pointsAwarded / kpi.weight) * 10)))
+      ? Math.max(0, Math.min(10, (result.pointsAwarded / kpi.weight) * 10))
       : 0;
     setScoresState((prev) => ({
       // Typing a real number means this period is applicable again, even if it was
@@ -1165,7 +1167,13 @@ Return valid JSON only, using this structure:
   // Helper row renderer for individual KPIs
   function renderKpiRow(kpi: KPIDefinition) {
     const isMetricKpi = kpi.measurementType === 'METRIC' && kpi.targetValue !== undefined;
-    const currentScore = scoresState[kpi.id]?.score || 8;
+    // `|| 8` is the RUBRIC-only default fallback (no saved score yet → show 8 selected).
+    // A METRIC KPI's score can legitimately be exactly 0 (e.g. 0% of target achieved),
+    // which is falsy — using `|| 8` there would wrongly display "8" instead of a real 0,
+    // so METRIC reads directly with `??` instead.
+    const currentScore = isMetricKpi
+      ? scoresState[kpi.id]?.score ?? 0
+      : scoresState[kpi.id]?.score || 8;
     const currentAchieved = scoresState[kpi.id]?.achieved;
     const isMarkedNotApplicable = scoresState[kpi.id]?.notApplicable === true;
     const isGuideOpen = activeGuideKpiId === kpi.id;
@@ -1239,7 +1247,7 @@ Return valid JSON only, using this structure:
                   ? 'مستبعد من الحساب — لا صفر ولا كامل الوزن'
                   : currentAchieved === undefined
                   ? `التارجت: ${kpi.targetValue}`
-                  : `التارجت: ${kpi.targetValue} — النتيجة المحسوبة: ${currentScore}/10`}
+                  : `التارجت: ${kpi.targetValue} — النتيجة المحسوبة: ${currentScore.toFixed(1)}/10`}
               </span>
             </div>
           ) : (

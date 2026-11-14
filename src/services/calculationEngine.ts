@@ -142,11 +142,20 @@ export class CalculationEngine {
     const isTeamLeader = level === 'Team Leader';
 
     for (const input of scoresInput) {
-      // Whole number enforcement 1-10
-      const validScore = Math.max(1, Math.min(10, Math.round(input.score)));
       const kpi = kpiDefinitions.find((k) => k.id === input.kpiId);
 
       if (!kpi) continue;
+
+      // RUBRIC scores come from the evaluator picking a whole 1-10 button, so those stay
+      // integer-clamped as before. A METRIC KPI's score is derived directly from
+      // achieved ÷ target (see EvaluationFormModal.handleAchievedChange) and is kept at
+      // full precision here too — rounding it to a whole 1-10 number first would throw
+      // away real precision from the typed figure (e.g. AOV 2,300 vs a target of 2,500
+      // is 92%, not "rounded to 9/10 = 90%"). Floored at 0, not 1: a METRIC KPI that
+      // achieved nothing this period should be able to show exactly that.
+      const validScore = kpi.measurementType === 'METRIC'
+        ? Math.max(0, Math.min(10, input.score))
+        : Math.max(1, Math.min(10, Math.round(input.score)));
 
       let effectiveWeight = kpi.weight;
 

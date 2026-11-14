@@ -125,7 +125,11 @@ export interface EvaluationScoreItem {
   kpiId: string;
   kpiName: string;
   category: KPICategory;
-  score: number; // 1 - 10 integer
+  // 1-10 integer for a RUBRIC KPI (picked by the evaluator). For a METRIC KPI this is a
+  // precise 0-10 decimal derived from achieved ÷ target, kept unrounded so the real
+  // typed figure (achieved/target) isn't lost to integer rounding — see achieved/target
+  // below for the actual numbers behind it.
+  score: number;
   weight: number; // Stored for calculation & historical lock, hidden from evaluator UI
   weightedContribution: number; // (score / 10) * weight
   notes?: string;
