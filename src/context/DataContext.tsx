@@ -137,9 +137,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Shared settings come from public.settings; keep the cached/default copy if that fails.
   // DEV-ONLY Local Test Login has no real Supabase session to fetch with, so skip the
   // call entirely rather than letting it fail — the already-loaded cached/default
-  // settings (initialSettings above) are used as-is.
+  // settings (initialSettings above) are used as-is. Mark the source as 'database' for
+  // this local-test path specifically, so the "settings haven't loaded yet" guard in
+  // App.tsx (which blocks starting an evaluation until settingsSource === 'database')
+  // doesn't permanently block every evaluation in a Local Test Login session — there is
+  // no real database load to wait for here, so the cached/default copy is treated as
+  // ready to use. This never runs for a real Supabase session.
   const loadSettings = useCallback(async () => {
-    if (isLocalTestSession) return null;
+    if (isLocalTestSession) {
+      setSettingsSource('database');
+      return null;
+    }
     const remoteSettings = await StorageService.fetchSettingsFromSupabase();
     if (remoteSettings) {
       setSettings(remoteSettings);
