@@ -17,6 +17,16 @@ const response = (status: number, body: Record<string, unknown>, origin: string)
   },
 );
 
+// Wraps the real, one-time Supabase Auth link behind our own landing page instead of
+// handing it out directly. Messaging apps (WhatsApp, Slack, ...) auto-fetch a shared
+// link to build a preview; if that fetch hits the real Supabase link, it consumes the
+// one-time token before the actual recipient ever clicks it, and the link then shows
+// as "expired" for them. A preview-fetch bot only requests HTML and never runs our
+// page's JavaScript, so wrapping the real link behind a page that only navigates to it
+// on an explicit button click keeps it unconsumed until a human actually opens it.
+const wrapInvitationLink = (realLink: string, allowedOrigin: string) =>
+  `${allowedOrigin}/auth/accept-invite?link=${encodeURIComponent(realLink)}`;
+
 Deno.serve(async (request) => {
   const allowedOrigin = Deno.env.get('APP_ORIGIN') || 'https://system.kesraa.com';
   const requestOrigin = request.headers.get('origin') || allowedOrigin;
@@ -145,7 +155,7 @@ Deno.serve(async (request) => {
       employeeId: employee.id,
       authLinked: true,
       alreadyLinked: true,
-      invitationLink: recoveryLink.properties.action_link,
+      invitationLink: wrapInvitationLink(recoveryLink.properties.action_link, allowedOrigin),
       delivery: 'manual',
     }, allowedOrigin);
   }
@@ -268,7 +278,7 @@ Deno.serve(async (request) => {
     employeeId: linkedEmployee.id,
     authLinked: true,
     alreadyLinked: false,
-    invitationLink: actionLink,
+    invitationLink: wrapInvitationLink(actionLink, allowedOrigin),
     delivery: 'manual',
   }, allowedOrigin);
 });

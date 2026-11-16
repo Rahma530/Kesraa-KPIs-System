@@ -13,6 +13,7 @@ import { AIInsightsModal } from './components/AIInsightsModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { LoginView } from './components/LoginView';
 import { SetPasswordView } from './components/SetPasswordView';
+import { AcceptInviteView } from './components/AcceptInviteView';
 import { TeamLeaderDashboard } from './components/TeamLeaderDashboard';
 import { HeadTechnicalDashboard } from './components/HeadTechnicalDashboard';
 import { SalesDashboardView } from './components/SalesDashboardView';
@@ -321,7 +322,11 @@ const AppRoutes: React.FC = () => {
     );
   }
 
-  if (isPasswordSetupFlow && location.pathname !== '/auth/setup-password') {
+  if (
+    isPasswordSetupFlow &&
+    location.pathname !== '/auth/setup-password' &&
+    location.pathname !== '/auth/accept-invite'
+  ) {
     return <Navigate to="/auth/setup-password" replace />;
   }
 
@@ -329,6 +334,7 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/auth/setup-password" element={<SetPasswordView />} />
+      <Route path="/auth/accept-invite" element={<AcceptInviteView />} />
       <Route path="/" element={<RootRedirector />} />
       
       <Route element={<AppLayout />}>
